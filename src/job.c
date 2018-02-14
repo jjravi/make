@@ -619,6 +619,7 @@ extern pid_t shell_function_pid;
 void
 reap_children (int block, int err)
 {
+  struct timeval tv;
 #ifndef WINDOWS32
   WAIT_T status;
 #endif
@@ -892,10 +893,11 @@ reap_children (int block, int err)
       else
         child_failed = MAKE_FAILURE;
 
+      gettimeofday(&tv,NULL);
       DB (DB_JOBS, (child_failed
-                    ? _("Reaping losing child %p PID %s %s\n")
-                    : _("Reaping winning child %p PID %s %s\n"),
-                    c, pid2str (c->pid), c->remote ? _(" (remote)") : ""));
+                    ? _("Reaping losing child %p PID %s %s. Timestamp: %ld %ld\n")
+                    : _("Reaping winning child %p PID %s %s. Timestamp: %ld %ld\n"),
+                    c, pid2str (c->pid), c->remote ? _(" (remote)") : "", tv.tv_sec, tv.tv_usec));
 
       if (c->sh_batch_file)
         {
@@ -1585,6 +1587,7 @@ start_job_command (struct child *child)
 static int
 start_waiting_job (struct child *c)
 {
+  struct timeval tv;
   struct file *f = c->file;
 
   /* If we can start a job remotely, we always want to, and don't care about
@@ -1617,9 +1620,10 @@ start_waiting_job (struct child *c)
     {
     case cs_running:
       c->next = children;
-      DB (DB_JOBS, (_("Putting child %p (%s) PID %s%s on the chain.\n"),
+      gettimeofday(&tv,NULL);
+      DB (DB_JOBS, (_("Putting child %p (%s) PID %s%s on the chain. Timestamp: %ld %ld\n"),
                     c, c->file->name, pid2str (c->pid),
-                    c->remote ? _(" (remote)") : ""));
+                    c->remote ? _(" (remote)") : "", tv.tv_sec, tv.tv_usec));
       children = c;
       /* One more job slot is in use.  */
       ++job_slots_used;
