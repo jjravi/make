@@ -29,6 +29,8 @@ struct child
     char **command_lines;       /* Array of variable-expanded cmd lines.  */
     char *command_ptr;          /* Ptr into command_lines[command_line].  */
 
+    struct timeval start;
+
 #ifdef VMS
     char *comname;              /* Temporary command file name */
     int efn;                    /* Completion event flag number */

@@ -620,6 +620,7 @@ void
 reap_children (int block, int err)
 {
   struct timeval tv;
+  float duration;
 #ifndef WINDOWS32
   WAIT_T status;
 #endif
@@ -894,10 +895,12 @@ reap_children (int block, int err)
         child_failed = MAKE_FAILURE;
 
       gettimeofday(&tv,NULL);
+      duration = tv.tv_sec - c->start.tv_sec;
+      duration += (tv.tv_usec - c->start.tv_usec) / 1000000.0f;
       DB (DB_JOBS, (child_failed
-                    ? _("Reaping losing child %p PID %s %s. Timestamp: %ld %ld\n")
-                    : _("Reaping winning child %p PID %s %s. Timestamp: %ld %ld\n"),
-                    c, pid2str (c->pid), c->remote ? _(" (remote)") : "", tv.tv_sec, tv.tv_usec));
+                    ? _("Reaping losing child %p %s PID %s %s. Start: %ld %ld end: %ld %ld %f\n")
+                    : _("Reaping winning child %p %s PID %s %s. Start: %ld %ld end: %ld %ld %f\n"),
+                    c, c->file->name, pid2str (c->pid), c->remote ? _(" (remote)") : "", c->start.tv_sec, c->start.tv_usec, tv.tv_sec, tv.tv_usec, duration));
 
       if (c->sh_batch_file)
         {
@@ -1116,6 +1119,8 @@ start_job_command (struct child *child)
 #else
   char **argv;
 #endif
+
+  gettimeofday(&child->start, NULL);
 
   /* If we have a completely empty commandset, stop now.  */
   if (!child->command_ptr)
@@ -1587,7 +1592,6 @@ start_job_command (struct child *child)
 static int
 start_waiting_job (struct child *c)
 {
-  struct timeval tv;
   struct file *f = c->file;
 
   /* If we can start a job remotely, we always want to, and don't care about
@@ -1620,10 +1624,9 @@ start_waiting_job (struct child *c)
     {
     case cs_running:
       c->next = children;
-      gettimeofday(&tv,NULL);
-      DB (DB_JOBS, (_("Putting child %p (%s) PID %s%s on the chain. Timestamp: %ld %ld\n"),
+      DB (DB_JOBS, (_("Putting child %p (%s) PID %s%s on the chain.\n"),
                     c, c->file->name, pid2str (c->pid),
-                    c->remote ? _(" (remote)") : "", tv.tv_sec, tv.tv_usec));
+                    c->remote ? _(" (remote)") : ""));
       children = c;
       /* One more job slot is in use.  */
       ++job_slots_used;
