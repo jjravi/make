@@ -264,6 +264,8 @@ static const int inf_jobs = 0;
 
 static char *jobserver_auth = NULL;
 
+static char *module_mapper = NULL;
+
 /* Handle for the mutex used on Windows to synchronize output of our
    children under -O.  */
 
@@ -360,6 +362,8 @@ static const char *const usage[] =
   -j [N], --jobs[=N]          Allow N jobs at once; infinite jobs with no arg.\n"),
     N_("\
   -k, --keep-going            Keep going when some targets can't be made.\n"),
+    N_("\
+  --module-mapper=SOCKET      Enable C++ module mapper (EXPERIMENTAL).\n"),
     N_("\
   -l [N], --load-average[=N], --max-load[=N]\n\
                               Don't start multiple jobs unless load is below N.\n"),
@@ -463,6 +467,7 @@ static const struct command_switch switches[] =
     { CHAR_MAX+8, flag_off, &silent_flag, 1, 1, 0, 0, &default_silent_flag,
       "no-silent" },
     { CHAR_MAX+9, string, &jobserver_auth, 1, 0, 0, 0, 0, "jobserver-fds" },
+    { CHAR_MAX+10,string, &module_mapper, 0, 0, 1, "=/tmp/", 0, "module-mapper" },
     { 0, 0, 0, 0, 0, 0, 0, 0, 0 }
   };
 
@@ -1695,6 +1700,14 @@ main (int argc, char **argv, char **envp)
     }
 
  job_setup_complete:
+
+  if (module_mapper)
+#if MAKE_CXX_MAPPER
+    mapper_setup (module_mapper);
+#else
+  ON (error, NILF,
+      _("warning: C++ mapper support unavailable.");
+#endif
 
   /* The extra indirection through $(MAKE_COMMAND) is done
      for hysterical raisins.  */
