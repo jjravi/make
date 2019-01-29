@@ -750,7 +750,10 @@ reap_children (int block, int err)
                 pid = WAIT_NOHANG (&status);
               else
 #endif
-                EINTRLOOP (pid, wait (&status));
+		if (mapper_enabled ())
+		  pid = mapper_wait (&status);
+		else
+		  EINTRLOOP (pid, wait (&status));
 #endif /* !VMS */
             }
           else
