@@ -2585,7 +2585,6 @@ main (int argc, char **argv, char **envp)
   else
     lastgoal->next = 0;
 
-
   if (!goals)
     {
       struct variable *v = lookup_variable (STRING_SIZE_TUPLE ("MAKEFILE_LIST"));
