@@ -63,7 +63,6 @@ struct child
     unsigned int  recursive:1;  /* Nonzero for recursive command ('+' etc.)  */
     unsigned int  jobslot:1;    /* Nonzero if it's reserved a job slot.  */
     unsigned int  dontcare:1;   /* Saved dontcare flag.  */
-    unsigned int  blocked:1;	/* Blocked pending a module dependency.  */
   };
 
 extern struct child *children;
