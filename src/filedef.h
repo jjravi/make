@@ -26,6 +26,22 @@ struct dep;
 struct variable;
 struct variable_set_list;
 
+typedef enum cmd_state              /* State of commands.  ORDER IS IMPORTANT!  */
+  {
+    cs_not_started = 0,     /* Not yet started.  Must be 0!  */
+    cs_deps_running,        /* Dep commands running.  */
+    cs_running,             /* Commands running.  */
+    cs_finished             /* Commands finished.  */
+  } command_state_t ENUM_BITFIELD (2);
+
+typedef enum update_status          /* Status of the last attempt to update.  */
+  {
+    us_success = 0,         /* Successfully updated.  Must be 0!  */
+    us_none,                /* No attempt to update has been made.  */
+    us_question,            /* Needs to be updated (-q is is set).  */
+    us_failed               /* Update failed.  */
+  } update_status_t ENUM_BITFIELD (2);
+
 struct file
   {
     const char *name;
@@ -66,20 +82,8 @@ struct file
     unsigned int considered;    /* equal to 'considered' if file has been
                                    considered on current scan of goal chain */
     int command_flags;          /* Flags OR'd in for cmds; see commands.h.  */
-    enum update_status          /* Status of the last attempt to update.  */
-      {
-        us_success = 0,         /* Successfully updated.  Must be 0!  */
-        us_none,                /* No attempt to update has been made.  */
-        us_question,            /* Needs to be updated (-q is is set).  */
-        us_failed               /* Update failed.  */
-      } update_status ENUM_BITFIELD (2);
-    enum cmd_state              /* State of commands.  ORDER IS IMPORTANT!  */
-      {
-        cs_not_started = 0,     /* Not yet started.  Must be 0!  */
-        cs_deps_running,        /* Dep commands running.  */
-        cs_running,             /* Commands running.  */
-        cs_finished             /* Commands finished.  */
-      } command_state ENUM_BITFIELD (2);
+    update_status_t update_status ENUM_BITFIELD (2);
+    command_state_t command_state ENUM_BITFIELD (2);
 
     unsigned int builtin:1;     /* True if the file is a builtin rule. */
     unsigned int precious:1;    /* Non-0 means don't delete file on quit */

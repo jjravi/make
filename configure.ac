@@ -37,6 +37,7 @@ AM_INIT_AUTOMAKE([1.16.1 foreign -Werror -Wall])
 # Checks for programs.
 AC_USE_SYSTEM_EXTENSIONS
 AC_PROG_CC
+AC_PROG_CXX
 
 # Configure gnulib
 gl_EARLY
@@ -199,6 +200,36 @@ AS_IF([test "x$with_guile" != xno],
 ])
 
 AM_CONDITIONAL([HAVE_GUILE], [test "$have_guile" = "yes"])
+
+# Specify a location for libcody
+AC_ARG_WITH(libcody,
+[AS_HELP_STRING([--with-libcody=PATH],
+		[specify prefix directory for installed libcody package.
+		 Equivalent to --with-libcody-include=PATH/include
+		 plus --with-libcody-lib=PATH/lib])])
+AC_ARG_WITH(libcody-include,
+[AS_HELP_STRING([--with-libcody-include=PATH],
+		[specify directory for installed libcody include files])])
+AC_ARG_WITH(libcody-lib,
+[AS_HELP_STRING([--with-libcody-lib=PATH],
+		[specify directory for the installed libcody library])])
+
+if test "x$with_libcody" != x; then
+  CODYLIB="-L$with_libcody/lib"
+  CODYLIBINC="-I$with_libcody/include"
+fi
+if test "x$with_libcody_include" != x; then
+  CODYLIBINC="-I$with_libcody_include"
+fi
+if test "x$with_libcody_lib" != x; then
+  CODYLIB="-L$with_libcody_lib"
+fi
+AC_SUBST(CODYLIB)
+AC_SUBST(CODYLIBINC)
+
+AC_ARG_VAR(CODYLIB,[How to link Cody])
+AC_ARG_VAR(CODYLIBINC,[How to find Cody include files])
+
 
 AC_CHECK_DECLS([sys_siglist, _sys_siglist, __sys_siglist], , ,
   [AC_INCLUDES_DEFAULT

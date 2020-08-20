@@ -60,11 +60,13 @@ struct dep
    The goals to be built constitute a chain of these, chained through 'next'.
    'stem' is not used, but it's simpler to include and ignore it.  */
 
+typedef floc floc_t;
+
 struct goaldep
   {
     DEP (struct goaldep);
     int error;
-    floc floc;
+    floc_t floc;
   };
 
 /* Options for parsing lists of filenames.  */
@@ -103,9 +105,9 @@ void free_ns_chain (struct nameseq *n);
 #if defined(MAKE_MAINTAINER_MODE) && defined(__GNUC__) && !defined(__STRICT_ANSI__)
 /* Use inline to get real type-checking.  */
 #define SI static inline
-SI struct nameseq *alloc_ns()      { return alloc_seq_elt (struct nameseq); }
-SI struct dep *alloc_dep()         { return alloc_seq_elt (struct dep); }
-SI struct goaldep *alloc_goaldep() { return alloc_seq_elt (struct goaldep); }
+SI struct nameseq *alloc_ns()      { return (struct nameseq *)alloc_seq_elt (struct nameseq); }
+SI struct dep *alloc_dep()         { return (struct dep *)alloc_seq_elt (struct dep); }
+SI struct goaldep *alloc_goaldep() { return (struct goaldep *)alloc_seq_elt (struct goaldep); }
 
 SI void free_ns(struct nameseq *n)      { free (n); }
 SI void free_dep(struct dep *d)         { free_ns ((struct nameseq *)d); }
@@ -132,9 +134,12 @@ struct goaldep *read_all_makefiles (const char **makefiles);
 void eval_buffer (char *buffer, const floc *floc);
 enum update_status update_goal_chain (struct goaldep *goals);
 
-#if MAKE_CXX_MAPPER
+enum update_status force_update_file (struct file *file);
+void force_remake_file (struct file *file);
+
+//#if MAKE_CXX_MAPPER
 extern void add_mapper_goal (struct file *file);
 extern void mapper_file_finish (struct file *file);
-#else
-#define mapper_file_finish(F) ((void)(F))
-#endif
+//#else
+//#define mapper_file_finish(F) ((void)(F))
+//#endif

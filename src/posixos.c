@@ -273,7 +273,8 @@ jobserver_acquire (int timeout)
   struct timespec spec;
   struct timespec *specp = NULL;
   sigset_t empty;
-  int mapper = mapper_enabled ();
+  // TODO: JOHN
+  //int mapper = mapper_enabled ();
 
   sigemptyset (&empty);
 
@@ -295,8 +296,9 @@ jobserver_acquire (int timeout)
       FD_ZERO (&readfds);
       FD_SET (job_fds[0], &readfds);
 
-      if (mapper)
-	hwm = mapper_pre_pselect (hwm, &readfds);
+      // TODO: JOHN
+  //    if (mapper)
+	//hwm = mapper_pre_pselect (hwm, &readfds);
 
       r = pselect (hwm+1, &readfds, NULL, NULL, specp, &empty);
       if (r < 0)
@@ -319,8 +321,9 @@ jobserver_acquire (int timeout)
         /* Timeout.  */
         return 0;
 
-      if (mapper && mapper_post_pselect (r, &readfds))
-	spec.tv_sec = 0;
+      // TODO: JOHN
+      //if (mapper && mapper_post_pselect (r, &readfds))
+	//spec.tv_sec = 0;
 
       if (r && FD_ISSET (job_fds[0], &readfds))
 	{

@@ -14,6 +14,7 @@ A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 You should have received a copy of the GNU General Public License along with
 this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
+extern "C" { 
 #include "makeint.h"
 #include "os.h"
 #include "filedef.h"
@@ -24,6 +25,9 @@ this program.  If not, see <http://www.gnu.org/licenses/>.  */
 #include "rule.h"
 #include "debug.h"
 #include "getopt.h"
+}
+
+#include "cxx-mapper.hh"
 
 #include <assert.h>
 #ifdef _AMIGA
@@ -118,16 +122,17 @@ struct command_switch
     int c;                      /* The switch character.  */
 
     enum                        /* Type of the value.  */
-      {
-        flag,                   /* Turn int flag on.  */
-        flag_off,               /* Turn int flag off.  */
-        string,                 /* One string per invocation.  */
-        strlist,                /* One string per switch.  */
-        filename,               /* A string containing a file name.  */
-        positive_int,           /* A positive integer.  */
-        floating,               /* A floating-point number (double).  */
-        ignore                  /* Ignored.  */
-      } type;
+    {
+      no=0,
+      flag=1,                   /* Turn int flag on.  */
+      flag_off,               /* Turn int flag off.  */
+      string,                 /* One string per invocation.  */
+      strlist,                /* One string per switch.  */
+      filename,               /* A string containing a file name.  */
+      positive_int,           /* A positive integer.  */
+      floating,               /* A floating-point number (double).  */
+      ignore                  /* Ignored.  */
+    } type;
 
     void *value_ptr;    /* Pointer to the value-holding variable.  */
 
@@ -417,58 +422,58 @@ static const char *const usage[] =
 
 static const struct command_switch switches[] =
   {
-    { 'b', ignore, 0, 0, 0, 0, 0, 0, 0 },
-    { 'B', flag, &always_make_set, 1, 1, 0, 0, 0, "always-make" },
-    { 'd', flag, &debug_flag, 1, 1, 0, 0, 0, 0 },
-    { 'e', flag, &env_overrides, 1, 1, 0, 0, 0, "environment-overrides", },
-    { 'E', strlist, &eval_strings, 1, 0, 0, 0, 0, "eval" },
-    { 'h', flag, &print_usage_flag, 0, 0, 0, 0, 0, "help" },
-    { 'i', flag, &ignore_errors_flag, 1, 1, 0, 0, 0, "ignore-errors" },
-    { 'k', flag, &keep_going_flag, 1, 1, 0, 0, &default_keep_going_flag,
+    { 'b', command_switch::ignore, 0, 0, 0, 0, 0, 0, 0 },
+    { 'B', command_switch::flag, &always_make_set, 1, 1, 0, 0, 0, "always-make" },
+    { 'd', command_switch::flag, &debug_flag, 1, 1, 0, 0, 0, 0 },
+    { 'e', command_switch::flag, &env_overrides, 1, 1, 0, 0, 0, "environment-overrides", },
+    { 'E', command_switch::strlist, &eval_strings, 1, 0, 0, 0, 0, "eval" },
+    { 'h', command_switch::flag, &print_usage_flag, 0, 0, 0, 0, 0, "help" },
+    { 'i', command_switch::flag, &ignore_errors_flag, 1, 1, 0, 0, 0, "ignore-errors" },
+    { 'k', command_switch::flag, &keep_going_flag, 1, 1, 0, 0, &default_keep_going_flag,
       "keep-going" },
-    { 'L', flag, &check_symlink_flag, 1, 1, 0, 0, 0, "check-symlink-times" },
-    { 'm', ignore, 0, 0, 0, 0, 0, 0, 0 },
-    { 'n', flag, &just_print_flag, 1, 1, 1, 0, 0, "just-print" },
-    { 'p', flag, &print_data_base_flag, 1, 1, 0, 0, 0, "print-data-base" },
-    { 'q', flag, &question_flag, 1, 1, 1, 0, 0, "question" },
-    { 'r', flag, &no_builtin_rules_flag, 1, 1, 0, 0, 0, "no-builtin-rules" },
-    { 'R', flag, &no_builtin_variables_flag, 1, 1, 0, 0, 0,
+    { 'L', command_switch::flag, &check_symlink_flag, 1, 1, 0, 0, 0, "check-symlink-times" },
+    { 'm', command_switch::ignore, 0, 0, 0, 0, 0, 0, 0 },
+    { 'n', command_switch::flag, &just_print_flag, 1, 1, 1, 0, 0, "just-print" },
+    { 'p', command_switch::flag, &print_data_base_flag, 1, 1, 0, 0, 0, "print-data-base" },
+    { 'q', command_switch::flag, &question_flag, 1, 1, 1, 0, 0, "question" },
+    { 'r', command_switch::flag, &no_builtin_rules_flag, 1, 1, 0, 0, 0, "no-builtin-rules" },
+    { 'R', command_switch::flag, &no_builtin_variables_flag, 1, 1, 0, 0, 0,
       "no-builtin-variables" },
-    { 's', flag, &silent_flag, 1, 1, 0, 0, &default_silent_flag, "silent" },
-    { 'S', flag_off, &keep_going_flag, 1, 1, 0, 0, &default_keep_going_flag,
+    { 's', command_switch::flag, &silent_flag, 1, 1, 0, 0, &default_silent_flag, "silent" },
+    { 'S', command_switch::flag_off, &keep_going_flag, 1, 1, 0, 0, &default_keep_going_flag,
       "no-keep-going" },
-    { 't', flag, &touch_flag, 1, 1, 1, 0, 0, "touch" },
-    { 'v', flag, &print_version_flag, 1, 1, 0, 0, 0, "version" },
-    { 'w', flag, &print_directory_flag, 1, 1, 0, 0,
+    { 't', command_switch::flag, &touch_flag, 1, 1, 1, 0, 0, "touch" },
+    { 'v', command_switch::flag, &print_version_flag, 1, 1, 0, 0, 0, "version" },
+    { 'w', command_switch::flag, &print_directory_flag, 1, 1, 0, 0,
       &default_print_directory_flag, "print-directory" },
 
     /* These options take arguments.  */
-    { 'C', filename, &directories, 0, 0, 0, 0, 0, "directory" },
-    { 'f', filename, &makefiles, 0, 0, 0, 0, 0, "file" },
-    { 'I', filename, &include_directories, 1, 1, 0, 0, 0,
+    { 'C', command_switch::filename, &directories, 0, 0, 0, 0, 0, "directory" },
+    { 'f', command_switch::filename, &makefiles, 0, 0, 0, 0, 0, "file" },
+    { 'I', command_switch::filename, &include_directories, 1, 1, 0, 0, 0,
       "include-dir" },
-    { 'j', positive_int, &arg_job_slots, 1, 1, 0, &inf_jobs, &default_job_slots,
+    { 'j', command_switch::positive_int, &arg_job_slots, 1, 1, 0, &inf_jobs, &default_job_slots,
       "jobs" },
-    { 'l', floating, &max_load_average, 1, 1, 0, &default_load_average,
+    { 'l', command_switch::floating, &max_load_average, 1, 1, 0, &default_load_average,
       &default_load_average, "load-average" },
-    { 'o', filename, &old_files, 0, 0, 0, 0, 0, "old-file" },
-    { 'O', string, &output_sync_option, 1, 1, 0, "target", 0, "output-sync" },
-    { 'W', filename, &new_files, 0, 0, 0, 0, 0, "what-if" },
+    { 'o', command_switch::filename, &old_files, 0, 0, 0, 0, 0, "old-file" },
+    { 'O', command_switch::string, &output_sync_option, 1, 1, 0, "target", 0, "output-sync" },
+    { 'W', command_switch::filename, &new_files, 0, 0, 0, 0, 0, "what-if" },
 
     /* These are long-style options.  */
-    { CHAR_MAX+1, strlist, &db_flags, 1, 1, 0, "basic", 0, "debug" },
-    { CHAR_MAX+2, string, &jobserver_auth, 1, 1, 0, 0, 0, "jobserver-auth" },
-    { CHAR_MAX+3, flag, &trace_flag, 1, 1, 0, 0, 0, "trace" },
-    { CHAR_MAX+4, flag_off, &print_directory_flag, 1, 1, 0, 0,
+    { CHAR_MAX+1, command_switch::strlist, &db_flags, 1, 1, 0, "basic", 0, "debug" },
+    { CHAR_MAX+2, command_switch::string, &jobserver_auth, 1, 1, 0, 0, 0, "jobserver-auth" },
+    { CHAR_MAX+3, command_switch::flag, &trace_flag, 1, 1, 0, 0, 0, "trace" },
+    { CHAR_MAX+4, command_switch::flag_off, &print_directory_flag, 1, 1, 0, 0,
       &default_print_directory_flag, "no-print-directory" },
-    { CHAR_MAX+5, flag, &warn_undefined_variables_flag, 1, 1, 0, 0, 0,
+    { CHAR_MAX+5, command_switch::flag, &warn_undefined_variables_flag, 1, 1, 0, 0, 0,
       "warn-undefined-variables" },
-    { CHAR_MAX+7, string, &sync_mutex, 1, 1, 0, 0, 0, "sync-mutex" },
-    { CHAR_MAX+8, flag_off, &silent_flag, 1, 1, 0, 0, &default_silent_flag,
+    { CHAR_MAX+7, command_switch::string, &sync_mutex, 1, 1, 0, 0, 0, "sync-mutex" },
+    { CHAR_MAX+8, command_switch::flag_off, &silent_flag, 1, 1, 0, 0, &default_silent_flag,
       "no-silent" },
-    { CHAR_MAX+9, string, &jobserver_auth, 1, 0, 0, 0, 0, "jobserver-fds" },
-    { CHAR_MAX+10,string, &module_mapper, 0, 0, 1, "", 0, "module-mapper" },
-    { 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+    { CHAR_MAX+9, command_switch::string, &jobserver_auth, 1, 0, 0, 0, 0, "jobserver-fds" },
+    { CHAR_MAX+10,command_switch::string, &module_mapper, 0, 0, 1, "", 0, "module-mapper" },
+    { 0, command_switch::no, 0, 0, 0, 0, 0, 0, 0 }
   };
 
 /* Secondary long names for options.  */
@@ -607,6 +612,7 @@ bsd_signal (int sig, bsd_signal_ret_t func)
 }
 # endif
 #endif
+
 
 static void
 initialize_global_hash_tables (void)
@@ -750,9 +756,9 @@ decode_debug_flags (void)
               case 'n':
                 db_level = 0;
                 break;
-	      case 'p':
-		db_level |= DB_PLUGIN;
-		break;
+              case 'p':
+                db_level |= DB_PLUGIN;
+                break;
               case 'v':
                 db_level |= DB_BASIC | DB_VERBOSE;
                 break;
@@ -1366,7 +1372,7 @@ main (int argc, char **argv, char **envp)
         struct variable *v;
         const char *ep = envp[i];
         /* By default, export all variables culled from the environment.  */
-        enum variable_export export = v_export;
+        enum variable_export s_export = v_export;
         size_t len;
 
         while (! STOP_SET (*ep, MAP_EQUALS))
@@ -1401,7 +1407,7 @@ main (int argc, char **argv, char **envp)
                 ++ep;
               }
             restarts = (unsigned int) atoi (ep);
-            export = v_noexport;
+            s_export = v_noexport;
           }
 
         v = define_variable (envp[i], len, ep, o_env, 1);
@@ -1411,14 +1417,14 @@ main (int argc, char **argv, char **envp)
         if (streq (v->name, "SHELL"))
           {
 #ifndef __MSDOS__
-            export = v_noexport;
+            s_export = v_noexport;
 #endif
             shell_var.name = xstrdup ("SHELL");
             shell_var.length = 5;
             shell_var.value = xstrdup (ep);
           }
 
-        v->export = export;
+        v->s_export = s_export;
       }
   }
 #ifdef WINDOWS32
@@ -1427,7 +1433,7 @@ main (int argc, char **argv, char **envp)
      */
     if (!unix_path)
       define_variable_cname ("PATH", windows32_path ? windows32_path : "",
-                             o_env, 1)->export = v_export;
+                             o_env, 1)->s_export = v_export;
 #endif
 #else /* For Amiga, read the ENV: device, ignoring all dirs */
     {
@@ -1450,7 +1456,7 @@ main (int argc, char **argv, char **envp)
                        variable_lookup(). Makes startup quite a bit faster. */
                     define_variable (fib.fib_FileName,
                                      strlen (fib.fib_FileName),
-                                     "", o_env, 1)->export = v_export;
+                                     "", o_env, 1)->s_export = v_export;
                   }
               }
             UnLock (env);
@@ -1500,14 +1506,14 @@ main (int argc, char **argv, char **envp)
       {
         const char *tty = TTYNAME (fileno (stdout));
         define_variable_cname ("MAKE_TERMOUT", tty ? tty : DEFAULT_TTYNAME,
-                               o_default, 0)->export = v_export;
+                               o_default, 0)->s_export = v_export;
       }
   if (isatty (fileno (stderr)))
     if (! lookup_variable (STRING_SIZE_TUPLE ("MAKE_TERMERR")))
       {
         const char *tty = TTYNAME (fileno (stderr));
         define_variable_cname ("MAKE_TERMERR", tty ? tty : DEFAULT_TTYNAME,
-                               o_default, 0)->export = v_export;
+                               o_default, 0)->s_export = v_export;
       }
 #endif
 
@@ -1741,7 +1747,7 @@ main (int argc, char **argv, char **envp)
         }
 
       /* Now allocate a buffer big enough and fill it.  */
-      p = value = alloca (len);
+      p = value = (char *) alloca (len);
       for (cv = command_variables; cv != 0; cv = cv->next)
         {
           v = cv->variable;
@@ -1783,7 +1789,7 @@ main (int argc, char **argv, char **envp)
                and thus re-read the makefiles, we read standard input
                into a temporary file and read from that.  */
             FILE *outfile;
-            char *template;
+            char *c_template;
             const char *tmpdir;
 
             if (stdin_nm)
@@ -1810,21 +1816,21 @@ main (int argc, char **argv, char **envp)
                )
               tmpdir = DEFAULT_TMPDIR;
 
-            template = alloca (strlen (tmpdir) + CSTRLEN (DEFAULT_TMPFILE) + 2);
-            strcpy (template, tmpdir);
+            c_template = (char *) alloca (strlen (tmpdir) + CSTRLEN (DEFAULT_TMPFILE) + 2);
+            strcpy (c_template, tmpdir);
 
 #ifdef HAVE_DOS_PATHS
-            if (strchr ("/\\", template[strlen (template) - 1]) == NULL)
-              strcat (template, "/");
+            if (strchr ("/\\", c_template[strlen (c_template) - 1]) == NULL)
+              strcat (c_template, "/");
 #else
 # ifndef VMS
-            if (template[strlen (template) - 1] != '/')
-              strcat (template, "/");
+            if (c_template[strlen (c_template) - 1] != '/')
+              strcat (c_template, "/");
 # endif /* !VMS */
 #endif /* !HAVE_DOS_PATHS */
 
-            strcat (template, DEFAULT_TMPFILE);
-            outfile = get_tmpfile (&stdin_nm, template);
+            strcat (c_template, DEFAULT_TMPFILE);
+            outfile = get_tmpfile (&stdin_nm, c_template);
             if (outfile == 0)
               pfatal_with_name (_("fopen (temporary file)"));
             while (!feof (stdin) && ! ferror (stdin))
@@ -1911,7 +1917,7 @@ main (int argc, char **argv, char **envp)
 
   /* Set up the MAKEFLAGS and MFLAGS variables for makefiles to see.
      Initialize it to be exported but allow the makefile to reset it.  */
-  define_makeflags (0, 0)->export = v_export;
+  define_makeflags (0, 0)->s_export = v_export;
 
   /* Define the default variables.  */
   define_default_variables ();
@@ -1937,7 +1943,7 @@ main (int argc, char **argv, char **envp)
           free (p);
         }
 
-      p = value = alloca (len);
+      p = value = (char *) alloca (len);
       for (i = 0; i < eval_strings->idx; ++i)
         {
           strcpy (p, "--eval=");
@@ -2209,7 +2215,7 @@ main (int argc, char **argv, char **envp)
         for (d = read_files; d != NULL; d = d->next)
           ++num_mkfiles;
 
-        makefile_mtimes = alloca (num_mkfiles * sizeof (FILE_TIMESTAMP));
+        makefile_mtimes = (uintmax_t *) alloca (num_mkfiles * sizeof (FILE_TIMESTAMP));
       }
 
       /* Remove any makefiles we don't want to try to update.  Record the
@@ -2384,11 +2390,11 @@ main (int argc, char **argv, char **envp)
           if (stdin_nm)
             {
               void *m = xmalloc ((nargc + 2) * sizeof (char *));
-              aargv = m;
+              aargv = (char **)m;
               memcpy (aargv, argv, argc * sizeof (char *));
               aargv[nargc++] = xstrdup (concat (2, "-o", stdin_nm));
               aargv[nargc] = 0;
-              nargv = m;
+              nargv = (const char **)m;
             }
           else
             nargv = (const char**)argv;
@@ -2427,7 +2433,7 @@ main (int argc, char **argv, char **envp)
               {
                 if (strneq (*p, MAKELEVEL_NAME "=", MAKELEVEL_LENGTH+1))
                   {
-                    *p = alloca (40);
+                    *p = (char *)alloca (40);
                     sprintf (*p, "%s=%u", MAKELEVEL_NAME, makelevel);
 #ifdef VMS
                     vms_putenv_symbol (*p);
@@ -2435,7 +2441,7 @@ main (int argc, char **argv, char **envp)
                   }
                 else if (strneq (*p, "MAKE_RESTARTS=", CSTRLEN ("MAKE_RESTARTS=")))
                   {
-                    *p = alloca (40);
+                    *p = (char *)alloca (40);
                     sprintf (*p, "MAKE_RESTARTS=%s%u",
                              OUTPUT_IS_TRACED () ? "-" : "", restarts);
                     restarts = 0;
@@ -2458,7 +2464,7 @@ main (int argc, char **argv, char **envp)
           /* If we didn't set the restarts variable yet, add it.  */
           if (restarts)
             {
-              char *b = alloca (40);
+              char *b = (char *)alloca (40);
               sprintf (b, "MAKE_RESTARTS=%s%u",
                        OUTPUT_IS_TRACED () ? "-" : "", restarts);
               putenv (b);
@@ -2665,17 +2671,17 @@ init_switches (void)
         *p++ = (char) switches[i].c;
       switch (switches[i].type)
         {
-        case flag:
-        case flag_off:
-        case ignore:
+        case command_switch::flag:
+        case command_switch::flag_off:
+        case command_switch::ignore:
           long_options[i].has_arg = no_argument;
           break;
 
-        case string:
-        case strlist:
-        case filename:
-        case positive_int:
-        case floating:
+        case command_switch::string:
+        case command_switch::strlist:
+        case command_switch::filename:
+        case command_switch::positive_int:
+        case command_switch::floating:
           if (short_option (switches[i].c))
             *p++ = ':';
           if (switches[i].noarg_value != 0)
@@ -2747,7 +2753,7 @@ handle_non_switch_argument (const char *arg, int env)
 
       if (! cv)
         {
-          cv = xmalloc (sizeof (*cv));
+          cv = (command_variable *)xmalloc (sizeof (*cv));
           cv->variable = v;
           cv->next = command_variables;
           command_variables = cv;
@@ -2790,7 +2796,7 @@ handle_non_switch_argument (const char *arg, int env)
 
             oldlen = strlen (gv->value);
             newlen = strlen (f->name);
-            vp = alloca (oldlen + 1 + newlen + 1);
+            vp = (char *)alloca (oldlen + 1 + newlen + 1);
             memcpy (vp, gv->value, oldlen);
             vp[oldlen] = ' ';
             memcpy (&vp[oldlen + 1], f->name, newlen + 1);
@@ -2883,23 +2889,23 @@ decode_switches (int argc, const char **argv, int env)
                 default:
                   abort ();
 
-                case ignore:
+                case command_switch::ignore:
                   break;
 
-                case flag:
-                case flag_off:
+                case command_switch::flag:
+                case command_switch::flag_off:
                   if (doit)
-                    *(int *) cs->value_ptr = cs->type == flag;
+                    *(int *) cs->value_ptr = cs->type == command_switch::flag;
                   break;
 
-                case string:
-                case strlist:
-                case filename:
+                case command_switch::string:
+                case command_switch::strlist:
+                case command_switch::filename:
                   if (!doit)
                     break;
 
                   if (! coptarg)
-                    coptarg = xstrdup (cs->noarg_value);
+                    coptarg = xstrdup ((const char *)cs->noarg_value);
                   else if (*coptarg == '\0')
                     {
                       char opt[2] = "c";
@@ -2917,7 +2923,7 @@ decode_switches (int argc, const char **argv, int env)
                       break;
                     }
 
-                  if (cs->type == string)
+                  if (cs->type == command_switch::string)
                     {
                       char **val = (char **)cs->value_ptr;
                       free (*val);
@@ -2928,27 +2934,27 @@ decode_switches (int argc, const char **argv, int env)
                   sl = *(struct stringlist **) cs->value_ptr;
                   if (sl == 0)
                     {
-                      sl = xmalloc (sizeof (struct stringlist));
+                      sl = (struct stringlist *)xmalloc (sizeof (struct stringlist));
                       sl->max = 5;
                       sl->idx = 0;
-                      sl->list = xmalloc (5 * sizeof (char *));
+                      sl->list = (const char **)xmalloc (5 * sizeof (char *));
                       *(struct stringlist **) cs->value_ptr = sl;
                     }
                   else if (sl->idx == sl->max - 1)
                     {
                       sl->max += 5;
                       /* MSVC erroneously warns without a cast here.  */
-                      sl->list = xrealloc ((void *)sl->list,
+                      sl->list = (const char **)xrealloc ((void *)sl->list,
                                            sl->max * sizeof (char *));
                     }
-                  if (cs->type == filename)
+                  if (cs->type == command_switch::filename)
                     sl->list[sl->idx++] = expand_command_line_file (coptarg);
                   else
                     sl->list[sl->idx++] = xstrdup (coptarg);
                   sl->list[sl->idx] = 0;
                   break;
 
-                case positive_int:
+                case command_switch::positive_int:
                   /* See if we have an option argument; if we do require that
                      it's all digits, not something like "10foo".  */
                   if (coptarg == 0 && argc > optind)
@@ -2987,7 +2993,7 @@ decode_switches (int argc, const char **argv, int env)
                       = *(unsigned int *) cs->noarg_value;
                   break;
 
-                case floating:
+                case command_switch::floating:
                   if (coptarg == 0 && optind < argc
                       && (ISDIGIT (argv[optind][0]) || argv[optind][0] == '.'))
                     coptarg = argv[optind++];
@@ -3034,7 +3040,7 @@ decode_switches (int argc, const char **argv, int env)
 static void
 decode_env_switches (const char *envar, size_t len)
 {
-  char *varref = alloca (2 + len + 2);
+  char *varref = (char *)alloca (2 + len + 2);
   char *value, *p, *buf;
   int argc;
   const char **argv;
@@ -3054,7 +3060,7 @@ decode_env_switches (const char *envar, size_t len)
     return;
 
   /* Allocate a vector that is definitely big enough.  */
-  argv = alloca ((1 + len + 1) * sizeof (char *));
+  argv = (const char **)alloca ((1 + len + 1) * sizeof (char *));
 
   /* getopt will look at the arguments starting at ARGV[1].
      Prepend a spacer word.  */
@@ -3063,7 +3069,7 @@ decode_env_switches (const char *envar, size_t len)
 
   /* We need a buffer to copy the value into while we split it into words
      and unquote it.  Set up in case we need to prepend a dash later.  */
-  buf = alloca (1 + len + 1);
+  buf = (char *)alloca (1 + len + 1);
   buf[0] = '-';
   p = buf+1;
   argv[argc] = p;
@@ -3147,16 +3153,16 @@ define_makeflags (int all, int makefile)
   size_t flagslen = 0;
 #define ADD_FLAG(ARG, LEN) \
   do {                                                                        \
-    struct flag *new = alloca (sizeof (struct flag));                         \
-    new->cs = cs;                                                             \
-    new->arg = (ARG);                                                         \
-    new->next = 0;                                                            \
+    struct flag *v_new = (struct flag *)alloca (sizeof (struct flag));        \
+    v_new->cs = cs;                                                           \
+    v_new->arg = (ARG);                                                       \
+    v_new->next = 0;                                                          \
     if (! flags)                                                              \
-      flags = new;                                                            \
+      flags = v_new;                                                          \
     else                                                                      \
-      last->next = new;                                                       \
-    last = new;                                                               \
-    if (new->arg == 0)                                                        \
+      last->next = v_new;                                                     \
+    last = v_new;                                                             \
+    if (v_new->arg == 0)                                                      \
       /* Just a single flag letter: " -x"  */                                 \
       flagslen += 3;                                                          \
     else                                                                      \
@@ -3171,18 +3177,18 @@ define_makeflags (int all, int makefile)
     if (cs->toenv && (!makefile || !cs->no_makefile))
       switch (cs->type)
         {
-        case ignore:
+        case command_switch::ignore:
           break;
 
-        case flag:
-        case flag_off:
-          if ((!*(int *) cs->value_ptr) == (cs->type == flag_off)
+        case command_switch::flag:
+        case command_switch::flag_off:
+          if ((!*(int *) cs->value_ptr) == (cs->type == command_switch::flag_off)
               && (cs->default_value == 0
                   || *(int *) cs->value_ptr != *(int *) cs->default_value))
             ADD_FLAG (0, 0);
           break;
 
-        case positive_int:
+        case command_switch::positive_int:
           if (all)
             {
               if ((cs->default_value != 0
@@ -3195,14 +3201,14 @@ define_makeflags (int all, int makefile)
                 ADD_FLAG ("", 0); /* Optional value omitted; see below.  */
               else
                 {
-                  char *buf = alloca (30);
+                  char *buf = (char *)alloca (30);
                   sprintf (buf, "%u", *(unsigned int *) cs->value_ptr);
                   ADD_FLAG (buf, strlen (buf));
                 }
             }
           break;
 
-        case floating:
+        case command_switch::floating:
           if (all)
             {
               if (cs->default_value != 0
@@ -3215,14 +3221,14 @@ define_makeflags (int all, int makefile)
                 ADD_FLAG ("", 0); /* Optional value omitted; see below.  */
               else
                 {
-                  char *buf = alloca (100);
+                  char *buf = (char *)alloca (100);
                   sprintf (buf, "%g", *(double *) cs->value_ptr);
                   ADD_FLAG (buf, strlen (buf));
                 }
             }
           break;
 
-        case string:
+        case command_switch::string:
           if (all)
             {
               p = *((char **)cs->value_ptr);
@@ -3231,8 +3237,8 @@ define_makeflags (int all, int makefile)
             }
           break;
 
-        case filename:
-        case strlist:
+        case command_switch::filename:
+        case command_switch::strlist:
           if (all)
             {
               struct stringlist *sl = *(struct stringlist **) cs->value_ptr;
@@ -3256,7 +3262,7 @@ define_makeflags (int all, int makefile)
 
   /* Construct the value in FLAGSTRING.
      We allocate enough space for a preceding dash and trailing null.  */
-  flagstring = alloca (1 + flagslen + 1);
+  flagstring = (char *)alloca (1 + flagslen + 1);
   memset (flagstring, '\0', 1 + flagslen + 1);
   p = flagstring;
 
@@ -3435,9 +3441,9 @@ clean_jobserver (int status)
             "INTERNAL: Exiting with %u jobserver tokens (should be 0)!",
             jobserver_tokens);
       else
-	/* Don't write back the "free" token */
-	while (--jobserver_tokens)
-	  jobserver_release (0);
+        /* Don't write back the "free" token */
+        while (--jobserver_tokens)
+          jobserver_release (0);
     }
 
   /* Sanity: If we're the master, were all the tokens written back?  */

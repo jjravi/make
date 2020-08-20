@@ -48,6 +48,15 @@ enum variable_flavor
 #define EXP_COUNT_BITS  15      /* This gets all the bitfields into 32 bits */
 #define EXP_COUNT_MAX   ((1<<EXP_COUNT_BITS)-1)
 
+typedef enum variable_export
+  {
+    v_export,               /* Export this variable.  */
+    v_noexport,             /* Don't export this variable.  */
+    v_ifset,                /* Export it if it has a non-default value.  */
+    v_default               /* Decide in target_environment.  */
+  } s_export_t ENUM_BITFIELD (2);
+
+
 struct variable
   {
     char *name;                 /* Variable name.  */
@@ -72,13 +81,7 @@ struct variable
       flavor ENUM_BITFIELD (3); /* Variable flavor.  */
     enum variable_origin
       origin ENUM_BITFIELD (3); /* Variable origin.  */
-    enum variable_export
-      {
-        v_export,               /* Export this variable.  */
-        v_noexport,             /* Don't export this variable.  */
-        v_ifset,                /* Export it if it has a non-default value.  */
-        v_default               /* Decide in target_environment.  */
-      } export ENUM_BITFIELD (2);
+      s_export_t s_export;
   };
 
 /* Structure that represents a variable set.  */

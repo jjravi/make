@@ -115,7 +115,7 @@ extern int errno;
 #endif
 
 /* Some systems define _POSIX_VERSION but are not really POSIX.1.  */
-#if (defined (butterfly) || defined (__arm) || (defined (__mips) && defined (_SYSTYPE_SVR3)) || (defined (sequent) && defined (i386)))
+#if (defined (butterfly) || (defined (__mips) && defined (_SYSTYPE_SVR3)) || (defined (sequent) && defined (i386)))
 # undef POSIX
 #endif
 
@@ -330,11 +330,12 @@ extern mode_t umask (mode_t);
 
 #define strneq(a, b, l) (strncmp ((a), (b), (l)) == 0)
 
-#if defined(ENUM_BITFIELDS) || (defined(__GNUC__) && !defined(__STRICT_ANSI__))
-# define ENUM_BITFIELD(bits)    :bits
-#else
+// TODO: fix for c++ hack
+// #if defined(ENUM_BITFIELDS) || (defined(__GNUC__) && !defined(__STRICT_ANSI__))
+// # define ENUM_BITFIELD(bits)    :bits
+// #else
 # define ENUM_BITFIELD(bits)
-#endif
+// #endif
 
 /* Handle gettext and locales.  */
 
@@ -687,24 +688,6 @@ extern char cmd_prefix;
 
 extern unsigned int job_slots;
 extern double max_load_average;
-
-#if MAKE_CXX_MAPPER
-extern int mapper_enabled (void);
-extern int mapper_setup (const char *option);
-extern void mapper_clear (void);
-extern int mapper_pre_pselect (int, fd_set *);
-extern int mapper_post_pselect (int, fd_set *);
-extern pid_t mapper_wait (int *);
-extern char *mapper_ident (void *);
-#else
-#define mapper_enabled() (0)
-#define mapper_setup(option) ((void)(option), 0)
-#define mapper_clear() ((void)0)
-#define mapper_pre_pselect(R,X) ((void)(X), R)
-#define mapper_post_pselect(R,X) ((void)(X), R)
-#define mapper_wait(XP) (assert (0))
-#define mapper_ident(X) ((void)(X), 0)
-#endif
 
 extern const char *program;
 

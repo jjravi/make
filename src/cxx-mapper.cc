@@ -25,6 +25,7 @@ this program.  If not, see <http://www.gnu.org/licenses/>.  */
    which also permits ipv6.
    Error behaviour is rather abrupt, and incomplete.  */
 
+extern "C" { 
 #include "makeint.h"
 #include "os.h"
 #include "filedef.h"
@@ -33,13 +34,21 @@ this program.  If not, see <http://www.gnu.org/licenses/>.  */
 #include "job.h"
 #include "rule.h"
 #include "debug.h"
+}
+
+#include "cxx-mapper.hh"
 
 #if defined (HAVE_SYS_WAIT_H) || defined (HAVE_UNION_WAIT)
 # include <sys/wait.h>
 #endif
 
+#define MAPPER_FOR_GCC 1
+#include "mapper.h"
+//#include "cxx-mapper.hh"
+
 #include <stdarg.h>
 #include <stdio.h>
+#include <string>
 
 #ifdef MAKE_CXX_MAPPER
 
@@ -117,6 +126,39 @@ static unsigned num_clients = 0;
 static unsigned alloc_clients = 0;
 static unsigned waiting_clients = 0;
 
+static void
+delete_client (struct client_state *client, unsigned slot)
+{
+  DB (DB_PLUGIN, ("mapper:%u destroyed\n", client->cix));
+  close (client->fd);
+  free (client->buf);
+  free (client->requests);
+  free (client);
+
+  if (slot + 1 != num_clients)
+    clients[slot] = clients[num_clients-1];
+  clients[--num_clients] = NULL; /* Make unreachable.  */
+}
+
+void
+mapper_clear (void)
+{
+  if (sock_fd >= 0)
+    close (sock_fd);
+  sock_fd = -1;
+  if (sock_name && sock_name[0] == '=')
+    unlink (sock_name + 1);
+  free (sock_name);
+  sock_name = NULL;
+
+  while (num_clients)
+    delete_client (clients[0], 0);
+
+  free (clients);
+  clients = NULL;
+  num_clients = alloc_clients = 0;
+}
+
 /* Set up a new connection.  */
 static void
 new_client (void)
@@ -131,14 +173,14 @@ new_client (void)
       return;
     }
 
-  client = xmalloc (sizeof (*client));
+  client = (client_state *)xmalloc (sizeof (*client));
   memset (client, 0, sizeof (*client));
   client->cix = ++factory;
   client->job = NULL;  /* Discovered during handshake.  */
   client->fd = client_fd;
   client->reading = 1;
   client->buf_size = 10; /* Exercise expansion.  */
-  client->buf = xmalloc (client->buf_size);
+  client->buf = (char *)xmalloc (client->buf_size);
 
   client->buf_pos = 0;
   client->bol = 1;
@@ -149,26 +191,12 @@ new_client (void)
   if (num_clients == alloc_clients)
     {
       alloc_clients = (alloc_clients ? alloc_clients : 10) * 2;
-      clients = xrealloc (clients, alloc_clients * sizeof (*clients));
+      clients = (client_state **)xrealloc (clients, alloc_clients * sizeof (*clients));
     }
 
   DB (DB_PLUGIN, ("mapper:%u connected\n", client->cix));
 
   clients[num_clients++] = client;
-}
-
-static void
-delete_client (struct client_state *client, unsigned slot)
-{
-  DB (DB_PLUGIN, ("mapper:%u destroyed\n", client->cix));
-  close (client->fd);
-  free (client->buf);
-  free (client->requests);
-  free (client);
-
-  if (slot + 1 != num_clients)
-    clients[slot] = clients[num_clients-1];
-  clients[--num_clients] = NULL; /* Make unreachable.  */
 }
 
 static void
@@ -191,7 +219,7 @@ client_print (struct client_state *client, const char *fmt, ...)
       if (actual + 3 <= space)
 	break;
       client->buf_size *= 2;
-      client->buf = xrealloc (client->buf, client->buf_size);
+      client->buf = (char *)xrealloc (client->buf, client->buf_size);
       if (actual < space)
 	break;
     }
@@ -443,7 +471,7 @@ client_parse (struct client_state *client)
 	      {
 		/* look for a target called {modulename}.{MODULE_SUFFIX}  */
 		size_t len = strlen (operand);
-		char *target_name = xmalloc (len + 2 + strlen (MODULE_SUFFIX));
+		char *target_name = (char *)xmalloc (len + 2 + strlen (MODULE_SUFFIX));
 		struct file *f;
 
 		memcpy (target_name, operand, len);
@@ -480,13 +508,13 @@ client_parse (struct client_state *client)
 		  {
 		    /* Inform any waiters, they may continue.  */
 		    mapper_file_finish (f);
-		    req->code = code;
+		    req->code = (response_codes)code;
 		  }
 		else if (code == CC_EXPORT
 			 || f->command_state == cs_finished)
 		  {
 		    client_response (req, f, NULL);
-		    req->code = code;
+		    req->code = (response_codes)code;
 		  }
 		else
 		  {
@@ -522,7 +550,7 @@ client_process (struct client_state *client, unsigned slot)
   size_t end = client->buf_pos;
 
   client->reading = 0;
-  client->requests = xmalloc (reqs * sizeof (*client->requests));
+  client->requests = (client_request *)xmalloc (reqs * sizeof (*client->requests));
   client->num_requests = client->num_awaiting = 0;
 
   client->buf_pos = 0;
@@ -557,7 +585,7 @@ client_read (struct client_state *client, unsigned slot)
   if (client->buf_size - client->buf_pos < 2)
     {
       client->buf_size *= 2;
-      client->buf = xrealloc (client->buf, client->buf_size);
+      client->buf = (char *)xrealloc (client->buf, client->buf_size);
     }
 
   bytes = read (client->fd, client->buf + client->buf_pos,
@@ -592,7 +620,7 @@ client_read (struct client_state *client, unsigned slot)
 	  client->bol = 0;
 	}
 
-      probe = memchr (client->buf + client->buf_pos, '\n', bytes);
+      probe = (char *)memchr (client->buf + client->buf_pos, '\n', bytes);
       if (!probe)
 	break;
 
@@ -758,110 +786,176 @@ mapper_enabled (void)
    Returns non-zero if enabled.  */
 
 int
-mapper_setup (const char *option)
+mapper_setup (const char *coption)
 {
-  int err = 0;
-  const char *errmsg = NULL;
-  size_t len = 0;
-#ifdef NETWORKING
-  int af = AF_UNSPEC;
-#ifdef HAVE_AF_UNIX
-  struct sockaddr_un un;
-  size_t un_len = 0;
-#endif
-#endif
-  char *writable;
 
-  if (!option || !option[0])
+  std::string name("localhost:54322");
+//  int sock_fd = -1; /* Socket fd, otherwise stdin/stdout.  */
+
+  char const *errmsg = nullptr;
+  std::string option = name;
+
+  int fd; 
+
+  auto colon = option.find_last_of (':');
+  if (colon != option.npos)
+  {
+    /* Try a hostname:port address.  */
+    char const *cptr = option.c_str () + colon;
+    char *endp;
+    unsigned port = strtoul (cptr + 1, &endp, 10);
+
+    if (port && endp != cptr + 1 && !*endp)
     {
-      char *var = variable_expand ("$("MAPPER_VAR")");
-      if (!var[0] && !option)
-	return 0;
-      option = var;
+      /* Ends in ':number', treat as ipv6 domain socket.  */
+      option.erase (colon);
+      fd = Cody::ListenInet6 (&errmsg, option.c_str (), port);
     }
+  }
 
-  if (!option[0] || (option[0] == '=' && !option[1]))
-    {
-      pid_t pid = getpid ();
-      writable = xmalloc (30);
-      len = snprintf (writable, 30, "=/tmp/make-mapper-%d", (int)pid);
-    }
-  else
-    {
-      writable = xstrdup (option);
-      len = strlen (option);
-    }
+  printf("JR: fd %d\n", fd);
 
-  /* Does it look like a socket?  */
-  if (writable[0] == '=')
-    {
-      /* A local socket.  */
-#ifdef HAVE_AF_UNIX
-      if (len < sizeof (un.sun_path))
-	{
-	  memset (&un, 0, sizeof (un));
-	  un.sun_family = AF_UNIX;
-	  memcpy (un.sun_path, writable + 1, len);
-	}
-      un_len = offsetof (struct sockaddr_un, sun_path) + len + 1;
-      af = AF_UNIX;
-#else
-      errmsg = "unix protocol unsupported";
-#endif
-      sock_name = writable;
-    }
+  sock_fd = fd;
 
-  if (sock_name)
-    {
-#ifdef NETWORKING
-      if (af != AF_UNSPEC)
-	{
-	  sock_fd = socket (af, SOCK_STREAM, 0);
-	  if (sock_fd >= 0)
-	    fd_noinherit (sock_fd);
-	}
-#endif
-#ifdef HAVE_AF_UNIX
-      if (un_len)
-	if (sock_fd < 0 || bind (sock_fd, (struct sockaddr *)&un, un_len) < 0)
-	  if (sock_fd >= 0)
-	    {
-	      close (sock_fd);
-	      sock_fd = -1;
-	    }
-#endif
-      if (sock_fd < 0 && !errmsg)
-	{
-	  err = errno;
-	  errmsg = "binding socket";
-	}
+  fprintf(stderr, "JR: NETWORKING MODE\n");
 
-      /* I don't know what a good listen queue length might be.  */
-      if (!errmsg && listen (sock_fd, 5))
-	{
-	  err = errno;
-	  errmsg = "listening";
-	}
-    }
+  fprintf(stderr, "JR: here\n");
 
-  if (sock_name && !errmsg)
-    /* Force it to be undefined now, and we'll define it per-job.  */
-    undefine_variable_global (MAPPER_VAR, strlen (MAPPER_VAR), o_automatic);
-  else
-    {
-      const char *arg;
+  //////////////////////////////////////////////////////////////////////////
 
-      if (!errmsg)
-	errmsg = "initialization";
-      arg = (!sock_name ? "Option malformed"
-	     : !err ? "Facility not provided" : strerror (err));
-      error (NILF, strlen (errmsg) + strlen (option) + strlen (arg),
-	     "failed %s of mapper `%s': %s", errmsg, option, arg);
-      free (writable);
-    }
 
-  if (!no_builtin_rules_flag)
-    mapper_default_rules ();
+//  char const *errmsg = nullptr;
+//
+//  int fd; 
+//
+//  std::string option(coption);
+//
+//  auto colon = option.find_last_of (':');
+//  if (colon != option.npos)
+//  {
+//    /* Try a hostname:port address.  */
+//    char const *cptr = option.c_str () + colon;
+//    char *endp;
+//    unsigned port = strtoul (cptr + 1, &endp, 10);
+//
+//    if (port && endp != cptr + 1 && !*endp)
+//    {
+//      /* Ends in ':number', treat as ipv6 domain socket.  */
+//      option.erase (colon);
+////      fd = Cody::ListenInet6 (&errmsg, option.c_str (), port);
+//    }
+//  }
+//
+//  printf("JR: fd %d\n", fd);
+//
+//  sock_fd = fd;
+//
+//  fprintf(stderr, "JR: NETWORKING MODE\n");
+//
+//  fprintf(stderr, "JR: here\n");
+//
+//  int err = 0;
+//  const char *errmsg = NULL;
+//  size_t len = 0;
+//#ifdef NETWORKING
+//  int af = AF_UNSPEC;
+//#ifdef HAVE_AF_UNIX
+//  struct sockaddr_un un;
+//  size_t un_len = 0;
+//#endif
+//#endif
+//  char *writable;
+//
+//  if (!option || !option[0])
+//    {
+//      char *var = variable_expand ("$(" MAPPER_VAR ")");
+//      if (!var[0] && !option)
+//	return 0;
+//      option = var;
+//    }
+//
+//  if (!option[0] || (option[0] == '=' && !option[1]))
+//    {
+//      pid_t pid = getpid ();
+//      writable = (char *)xmalloc (30);
+//      len = snprintf (writable, 30, "=/tmp/make-mapper-%d", (int)pid);
+//    }
+//  else
+//    {
+//      writable = xstrdup (option);
+//      len = strlen (option);
+//    }
+//
+//  /* Does it look like a socket?  */
+//  if (writable[0] == '=')
+//    {
+//      /* A local socket.  */
+//#ifdef HAVE_AF_UNIX
+//      if (len < sizeof (un.sun_path))
+//	{
+//	  memset (&un, 0, sizeof (un));
+//	  un.sun_family = AF_UNIX;
+//	  memcpy (un.sun_path, writable + 1, len);
+//	}
+//      un_len = offsetof (struct sockaddr_un, sun_path) + len + 1;
+//      af = AF_UNIX;
+//#else
+//      errmsg = "unix protocol unsupported";
+//#endif
+//      sock_name = writable;
+//    }
+//
+//  if (sock_name)
+//    {
+//#ifdef NETWORKING
+//      if (af != AF_UNSPEC)
+//	{
+//	  sock_fd = socket (af, SOCK_STREAM, 0);
+//	  if (sock_fd >= 0)
+//	    fd_noinherit (sock_fd);
+//	}
+//#endif
+//#ifdef HAVE_AF_UNIX
+//      if (un_len)
+//	if (sock_fd < 0 || bind (sock_fd, (struct sockaddr *)&un, un_len) < 0)
+//	  if (sock_fd >= 0)
+//	    {
+//	      close (sock_fd);
+//	      sock_fd = -1;
+//	    }
+//#endif
+//      if (sock_fd < 0 && !errmsg)
+//	{
+//	  err = errno;
+//	  errmsg = "binding socket";
+//	}
+//
+//      /* I don't know what a good listen queue length might be.  */
+//      if (!errmsg && listen (sock_fd, 5))
+//	{
+//	  err = errno;
+//	  errmsg = "listening";
+//	}
+//    }
+//
+//  if (sock_name && !errmsg)
+//    /* Force it to be undefined now, and we'll define it per-job.  */
+//    undefine_variable_global (MAPPER_VAR, strlen (MAPPER_VAR), o_automatic);
+//  else
+//    {
+//      const char *arg;
+//
+//      if (!errmsg)
+//	errmsg = "initialization";
+//      arg = (!sock_name ? "Option malformed"
+//	     : !err ? "Facility not provided" : strerror (err));
+//      error (NILF, strlen (errmsg) + strlen (option) + strlen (arg),
+//	     "failed %s of mapper `%s': %s", errmsg, option, arg);
+//      free (writable);
+//    }
+//
+//  if (!no_builtin_rules_flag)
+//    mapper_default_rules ();
 
   return 1;
 }
@@ -873,28 +967,9 @@ mapper_ident (void *cookie)
   
   if (!sock_name)
     return 0;
-  assn = xmalloc (100);
+  assn = (char *)xmalloc (100);
   sprintf (assn, MAPPER_VAR "=%s?%#lx", sock_name, (unsigned long)cookie);
   return assn;
-}
-
-void
-mapper_clear (void)
-{
-  if (sock_fd >= 0)
-    close (sock_fd);
-  sock_fd = -1;
-  if (sock_name && sock_name[0] == '=')
-    unlink (sock_name + 1);
-  free (sock_name);
-  sock_name = NULL;
-
-  while (num_clients)
-    delete_client (clients[0], 0);
-
-  free (clients);
-  clients = NULL;
-  num_clients = alloc_clients = 0;
 }
 
 #endif /* MAKE_CXX_MAPPER */

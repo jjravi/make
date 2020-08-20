@@ -752,7 +752,7 @@ eval (struct ebuffer *ebuf, int set_default)
           assert (v != NULL);
 
           if (vmod.export_v)
-            v->export = v_export;
+            v->s_export = v_export;
           if (vmod.private_v)
             v->private_var = 1;
 
@@ -823,7 +823,7 @@ eval (struct ebuffer *ebuf, int set_default)
                   struct variable *v = lookup_variable (p, l);
                   if (v == 0)
                     v = define_variable_global (p, l, "", o_file, 0, fstart);
-                  v->export = exporting ? v_export : v_noexport;
+                  v->s_export = exporting ? v_export : v_noexport;
                 }
 
               free (ap);
@@ -1912,7 +1912,7 @@ record_target_var (struct nameseq *filenames, char *defn,
       /* Set up the variable to be *-specific.  */
       v->per_target = 1;
       v->private_var = vmod->private_v;
-      v->export = vmod->export_v ? v_export : v_default;
+      v->s_export = vmod->export_v ? v_export : v_default;
 
       /* If it's not an override, check to see if there was a command-line
          setting.  If so, reset the value.  */

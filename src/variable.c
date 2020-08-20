@@ -280,7 +280,7 @@ define_variable_in_set (const char *name, size_t length,
   v->origin = origin;
   v->recursive = recursive;
 
-  v->export = v_default;
+  v->s_export = v_default;
   v->exportable = 1;
   if (*name != '_' && (*name < 'A' || *name > 'Z')
       && (*name < 'a' || *name > 'z'))
@@ -639,7 +639,7 @@ initialize_file_variables (struct file *file, int reading)
 
               /* Also mark it as a per-target and copy export status. */
               v->per_target = p->variable.per_target;
-              v->export = p->variable.export;
+              v->s_export = p->variable.s_export;
               v->private_var = p->variable.private_var;
             }
           while ((p = lookup_pattern_var (p, file->name)) != 0);
@@ -918,7 +918,7 @@ define_automatic_variables (void)
      isn't one there.  */
   v = define_variable_cname ("SHELL", default_shell, o_default, 0);
 #ifdef __MSDOS__
-  v->export = v_export;  /*  Export always SHELL.  */
+  v->s_export = v_export;  /*  Export always SHELL.  */
 #endif
 
   /* On MSDOS we do use SHELL from environment, since it isn't a standard
@@ -937,7 +937,7 @@ define_automatic_variables (void)
 
   /* Make sure MAKEFILES gets exported if it is set.  */
   v = define_variable_cname ("MAKEFILES", "", o_default, 0);
-  v->export = v_ifset;
+  v->s_export = v_ifset;
 
   /* Define the magic D and F variables in terms of
      the automatic variables they are variations of.  */
@@ -1019,17 +1019,17 @@ target_environment (struct file *file)
             /* If this is a per-target variable and it hasn't been touched
                already then look up the global version and take its export
                value.  */
-            if (v->per_target && v->export == v_default)
+            if (v->per_target && v->s_export == v_default)
               {
                 struct variable *gv;
 
                 gv = lookup_variable_in_set (v->name, strlen (v->name),
                                              &global_variable_set);
                 if (gv)
-                  v->export = gv->export;
+                  v->s_export = gv->s_export;
               }
 
-            switch (v->export)
+            switch (v->s_export)
               {
               case v_default:
                 if (v->origin == o_default || v->origin == o_automatic)
@@ -1083,9 +1083,10 @@ target_environment (struct file *file)
   sprintf (assn, "%s=%u", MAKELEVEL_NAME, makelevel + 1);
   *result++ = assn;
 
-  assn = mapper_ident (file);
-  if (assn)
-    *result++ = assn;
+  // TODO: JOHN
+  //assn = mapper_ident (file);
+  //if (assn)
+  //  *result++ = assn;
 
   v_slot = (struct variable **) table.ht_vec;
   v_end = v_slot + table.ht_size;
