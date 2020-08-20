@@ -14,6 +14,7 @@ A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 You should have received a copy of the GNU General Public License along with
 this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
+extern "C" { 
 #include "makeint.h"
 
 #include <stdio.h>
@@ -31,6 +32,9 @@ this program.  If not, see <http://www.gnu.org/licenses/>.  */
 #include "debug.h"
 #include "job.h"
 #include "os.h"
+}
+
+#include "cxx-mapper.hh"
 
 #ifdef MAKE_JOBSERVER
 
@@ -156,7 +160,7 @@ jobserver_parse_auth (const char *auth)
 char *
 jobserver_get_auth (void)
 {
-  char *auth = xmalloc ((INTSTR_LENGTH * 2) + 2);
+  char *auth = (char *)xmalloc ((INTSTR_LENGTH * 2) + 2);
   sprintf (auth, "%d,%d", job_fds[0], job_fds[1]);
   return auth;
 }
@@ -273,8 +277,7 @@ jobserver_acquire (int timeout)
   struct timespec spec;
   struct timespec *specp = NULL;
   sigset_t empty;
-  // TODO: JOHN
-  //int mapper = mapper_enabled ();
+  int mapper = mapper_enabled ();
 
   sigemptyset (&empty);
 
@@ -296,9 +299,8 @@ jobserver_acquire (int timeout)
       FD_ZERO (&readfds);
       FD_SET (job_fds[0], &readfds);
 
-      // TODO: JOHN
-  //    if (mapper)
-	//hwm = mapper_pre_pselect (hwm, &readfds);
+      if (mapper)
+	hwm = mapper_pre_pselect (hwm, &readfds);
 
       r = pselect (hwm+1, &readfds, NULL, NULL, specp, &empty);
       if (r < 0)
@@ -321,9 +323,8 @@ jobserver_acquire (int timeout)
         /* Timeout.  */
         return 0;
 
-      // TODO: JOHN
-      //if (mapper && mapper_post_pselect (r, &readfds))
-	//spec.tv_sec = 0;
+      if (mapper && mapper_post_pselect (r, &readfds))
+	spec.tv_sec = 0;
 
       if (r && FD_ISSET (job_fds[0], &readfds))
 	{

@@ -14,6 +14,7 @@ A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 You should have received a copy of the GNU General Public License along with
 this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
+extern "C" { 
 #include "makeint.h"
 
 #include <assert.h>
@@ -25,6 +26,9 @@ this program.  If not, see <http://www.gnu.org/licenses/>.  */
 #include "commands.h"
 #include "variable.h"
 #include "os.h"
+}
+
+#include "cxx-mapper.hh"
 
 /* Default shell to use.  */
 #ifdef WINDOWS32
@@ -444,7 +448,7 @@ is_bourne_compatible_shell (const char *path)
 
   /* find the rightmost '/' or '\\' */
   const char *name = strrchr (path, '/');
-  char *p = strrchr (path, '\\');
+  char *p = strrchr ((char *)path, '\\');
 
   if (name && p)    /* take the max */
     name = (name > p) ? name : p;
@@ -562,7 +566,7 @@ child_error (struct child *child,
     nm = _("<builtin>");
   else
     {
-      char *a = alloca (strlen (flocp->filenm) + 6 + INTSTR_LENGTH + 1);
+      char *a = (char *)alloca (strlen (flocp->filenm) + 6 + INTSTR_LENGTH + 1);
       sprintf (a, "%s:%lu", flocp->filenm, flocp->lineno + flocp->offset);
       nm = a;
     }
@@ -756,10 +760,9 @@ reap_children (int block, int err)
                 pid = WAIT_NOHANG (&status);
               else
 #endif
-// TODO: JOHN
-//		if (mapper_enabled ())
-//		  pid = mapper_wait (&status);
-//		else
+		if (mapper_enabled ())
+		  pid = mapper_wait (&status);
+		else
 		  EINTRLOOP (pid, wait (&status));
 #endif /* !VMS */
             }
@@ -1707,7 +1710,7 @@ new_job (struct file *file)
   /* Start the command sequence, record it in a new
      'struct child', and add that to the chain.  */
 
-  c = xcalloc (sizeof (struct child));
+  c = (struct child *)xcalloc (sizeof (struct child));
   output_init (&c->output);
 
   c->file = file;
@@ -1721,7 +1724,7 @@ new_job (struct file *file)
   OUTPUT_SET (&c->output);
 
   /* Expand the command lines and store the results in LINES.  */
-  lines = xmalloc (cmds->ncommand_lines * sizeof (char *));
+  lines = (char **)xmalloc (cmds->ncommand_lines * sizeof (char *));
   for (i = 0; i < cmds->ncommand_lines; ++i)
     {
       /* Collapse backslash-newline combinations that are inside variable
@@ -1907,7 +1910,7 @@ new_job (struct file *file)
         nm = _("<builtin>");
       else
         {
-          char *n = alloca (strlen (cmds->fileinfo.filenm) + 1 + 11 + 1);
+          char *n = (char *)alloca (strlen (cmds->fileinfo.filenm) + 1 + 11 + 1);
           sprintf (n, "%s:%lu", cmds->fileinfo.filenm, cmds->fileinfo.lineno);
           nm = n;
         }
@@ -2402,7 +2405,7 @@ child_execute_job (struct childbase *child, int good_stdin, char **argv)
         size_t l = confstr (_CS_PATH, NULL, 0);
         if (l)
           {
-            char *dp = alloca (l);
+            char *dp = (char *)alloca (l);
             confstr (_CS_PATH, dp, l);
             p = dp;
           }
@@ -2434,7 +2437,7 @@ child_execute_job (struct childbase *child, int good_stdin, char **argv)
       for (pp = argv; *pp != NULL; ++pp)
         ++l;
 
-      nargv = xmalloc (sizeof (char *) * (l + 3));
+      nargv = (char **)xmalloc (sizeof (char *) * (l + 3));
       nargv[0] = (char *)default_shell;
       nargv[1] = cmd;
       memcpy (&nargv[2], &argv[1], sizeof (char *) * l);
@@ -2614,7 +2617,7 @@ exec_command (char **argv, char **envp)
           ++argc;
 # endif
 
-        new_argv = alloca ((1 + argc + 1) * sizeof (char *));
+        new_argv = (char **)alloca ((1 + argc + 1) * sizeof (char *));
         new_argv[0] = (char *)shell;
 
 # ifdef __EMX__
@@ -2930,10 +2933,10 @@ construct_command_argv_internal (char *line, char **restp, const char *shell,
   i = strlen (line) + 1;
 
   /* More than 1 arg per character is impossible.  */
-  new_argv = xmalloc (i * sizeof (char *));
+  new_argv = (char **)xmalloc (i * sizeof (char *));
 
   /* All the args can fit in a buffer as big as LINE is.   */
-  ap = new_argv[0] = argstr = xmalloc (i);
+  ap = new_argv[0] = argstr = (char *)xmalloc (i);
 #ifndef NDEBUG
   end = ap + i;
 #endif
@@ -3387,7 +3390,7 @@ construct_command_argv_internal (char *line, char **restp, const char *shell,
         {
           int n = 0;
 
-          new_argv = xmalloc ((4 + sflags_len/2) * sizeof (char *));
+          new_argv = (char **)xmalloc ((4 + sflags_len/2) * sizeof (char *));
           new_argv[n++] = xstrdup (shell);
 
           /* Chop up the shellflags (if any) and assign them.  */
@@ -3409,7 +3412,7 @@ construct_command_argv_internal (char *line, char **restp, const char *shell,
         return new_argv;
       }
 
-    new_line = xmalloc ((shell_len*2) + 1 + sflags_len + 1
+    new_line = (char *)xmalloc ((shell_len*2) + 1 + sflags_len + 1
                         + (line_len*2) + 1);
     ap = new_line;
     /* Copy SHELL, escaping any characters special to the shell.  If

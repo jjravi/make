@@ -14,6 +14,7 @@ A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 You should have received a copy of the GNU General Public License along with
 this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
+extern "C" { 
 #include "makeint.h"
 
 #include <assert.h>
@@ -28,6 +29,9 @@ this program.  If not, see <http://www.gnu.org/licenses/>.  */
 #include "pathstuff.h"
 #endif
 #include "hash.h"
+}
+
+#include "cxx-mapper.hh"
 
 /* Incremented every time we add or remove a global variable.  */
 static unsigned long variable_changenum;
@@ -51,7 +55,7 @@ struct pattern_var *
 create_pattern_var (const char *target, const char *suffix)
 {
   size_t len = strlen (target);
-  struct pattern_var *p = xcalloc (sizeof (struct pattern_var));
+  struct pattern_var *p = (struct pattern_var *)xcalloc (sizeof (struct pattern_var));
 
   if (pattern_vars != 0)
     {
@@ -267,7 +271,7 @@ define_variable_in_set (const char *name, size_t length,
 
   /* Create a new variable definition and add it to the hash table.  */
 
-  v = xcalloc (sizeof (struct variable));
+  v = (variable *)xcalloc (sizeof (struct variable));
   v->name = xstrndup (name, length);
   v->length = (unsigned int) length;
   hash_insert_at (&set->table, v, var_slot);
@@ -411,7 +415,7 @@ lookup_special_var (struct variable *var)
       struct variable **end = &vp[global_variable_set.table.ht_size];
 
       /* Make sure we have at least MAX bytes in the allocated buffer.  */
-      var->value = xrealloc (var->value, max);
+      var->value = (char *)xrealloc (var->value, max);
 
       /* Walk through the hash of variables, constructing a list of names.  */
       p = var->value;
@@ -428,7 +432,7 @@ lookup_special_var (struct variable *var)
                 size_t off = p - var->value;
 
                 max += EXPANSION_INCREMENT (l + 1);
-                var->value = xrealloc (var->value, max);
+                var->value = (char *)xrealloc (var->value, max);
                 p = &var->value[off];
               }
 
@@ -569,7 +573,7 @@ initialize_file_variables (struct file *file, int reading)
     {
       l = (struct variable_set_list *)
         xmalloc (sizeof (struct variable_set_list));
-      l->set = xmalloc (sizeof (struct variable_set));
+      l->set = (variable_set *)xmalloc (sizeof (struct variable_set));
       hash_init (&l->set->table, PERFILE_VARIABLE_BUCKETS,
                  variable_hash_1, variable_hash_2, variable_hash_cmp);
       file->variables = l;
@@ -669,7 +673,7 @@ create_new_variable_set (void)
   struct variable_set_list *setlist;
   struct variable_set *set;
 
-  set = xmalloc (sizeof (struct variable_set));
+  set = (struct variable_set *)xmalloc (sizeof (struct variable_set));
   hash_init (&set->table, SMALL_SCOPE_VARIABLE_BUCKETS,
              variable_hash_1, variable_hash_2, variable_hash_cmp);
 
@@ -1074,19 +1078,18 @@ target_environment (struct file *file)
           }
     }
 
-  result = result_0 = xmalloc ((table.ht_fill + 3) * sizeof (char *));
+  result = result_0 = (char **)xmalloc ((table.ht_fill + 3) * sizeof (char *));
 
   key.name = (char *)MAKELEVEL_NAME;
   key.length = MAKELEVEL_LENGTH;
   hash_delete (&table, &key);
-  assn = xmalloc (100);
+  assn = (char *)xmalloc (100);
   sprintf (assn, "%s=%u", MAKELEVEL_NAME, makelevel + 1);
   *result++ = assn;
 
-  // TODO: JOHN
-  //assn = mapper_ident (file);
-  //if (assn)
-  //  *result++ = assn;
+  assn = mapper_ident (file);
+  if (assn)
+    *result++ = assn;
 
   v_slot = (struct variable **) table.ht_vec;
   v_end = v_slot + table.ht_size;
@@ -1275,7 +1278,7 @@ do_variable_definition (const floc *flocp, const char *varname,
               }
 
             oldlen = strlen (v->value);
-            p = alloc_value = xmalloc (oldlen + 1 + vallen + 1);
+            p = alloc_value = (char *)xmalloc (oldlen + 1 + vallen + 1);
 
             if (oldlen)
               {
@@ -1599,7 +1602,7 @@ assign_variable_definition (struct variable *v, const char *line)
     return NULL;
 
   /* Expand the name, so "$(foo)bar = baz" works.  */
-  name = alloca (v->length + 1);
+  name = (char *)alloca (v->length + 1);
   memcpy (name, v->name, v->length);
   name[v->length] = '\0';
   v->name = allocated_variable_expand (name);
@@ -1651,8 +1654,8 @@ try_variable_definition (const floc *flocp, const char *line,
 static void
 print_variable (const void *item, void *arg)
 {
-  const struct variable *v = item;
-  const char *prefix = arg;
+  const struct variable *v = (const struct variable *)item;
+  const char *prefix = (const char *)arg;
   const char *origin;
 
   switch (v->origin)
@@ -1724,7 +1727,7 @@ print_variable (const void *item, void *arg)
 static void
 print_auto_variable (const void *item, void *arg)
 {
-  const struct variable *v = item;
+  const struct variable *v = (const struct variable *)item;
 
   if (v->origin == o_automatic)
     print_variable (item, arg);
@@ -1734,7 +1737,7 @@ print_auto_variable (const void *item, void *arg)
 static void
 print_noauto_variable (const void *item, void *arg)
 {
-  const struct variable *v = item;
+  const struct variable *v = (const struct variable *)item;
 
   if (v->origin != o_automatic)
     print_variable (item, arg);
@@ -1801,7 +1804,7 @@ print_target_variables (const struct file *file)
   if (file->variables != 0)
     {
       size_t l = strlen (file->name);
-      char *t = alloca (l + 3);
+      char *t = (char *)alloca (l + 3);
 
       strcpy (t, file->name);
       t[l] = ':';

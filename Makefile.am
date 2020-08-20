@@ -36,11 +36,11 @@ make_SRCS =	src/ar.c src/arscan.c src/commands.c src/commands.h \
 		src/debug.h src/default.c src/dep.h src/dir.c src/expand.c \
 		src/file.c src/filedef.h src/function.c src/getopt.c \
 		src/getopt.h src/getopt1.c src/gettext.h src/guile.c \
-		src/hash.c src/hash.h src/implicit.c src/job.c src/job.h \
+		src/hash.c src/hash.h src/implicit.c src/job.cc src/job.h \
 		src/load.c src/loadapi.c src/main.cc src/makeint.h src/misc.c \
 		src/os.h src/output.c src/output.h src/read.c src/remake.c \
 		src/rule.c src/rule.h src/signame.c src/strcache.c \
-		src/variable.c src/variable.h src/version.c src/vpath.c
+		src/variable.cc src/variable.h src/version.c src/vpath.c
 
 w32_SRCS =	src/w32/pathstuff.c src/w32/w32os.c src/w32/compat/dirent.c \
 		src/w32/compat/posixfcn.c src/w32/include/dirent.h \
@@ -78,7 +78,7 @@ if WINDOWSENV
   make_SOURCES += $(w32_SRCS)
   AM_CPPFLAGS  += -I $(top_srcdir)/src/w32/include
 else
-  make_SOURCES += src/posixos.c src/cxx-mapper.cc
+  make_SOURCES += src/posixos.cc src/cxx-mapper.cc
 endif
 
 if USE_CUSTOMS
