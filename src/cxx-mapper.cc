@@ -36,15 +36,13 @@ extern "C" {
 #include "debug.h"
 }
 
-#include "cxx-mapper.hh"
-
 #if defined (HAVE_SYS_WAIT_H) || defined (HAVE_UNION_WAIT)
 # include <sys/wait.h>
 #endif
 
 #define MAPPER_FOR_GCC 1
 #include "mapper.h"
-//#include "cxx-mapper.hh"
+#include "cxx-mapper.hh"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -416,123 +414,123 @@ client_parse (struct client_state *client)
 
   token = client_token (client);
   if (!token)
-    {
-      client->buf_pos++;
-      return 1;
-    }
+  {
+    client->buf_pos++;
+    return 1;
+  }
   else if (!client->job)
+  {
+    if (strncmp (token, "HELLO", 5) == 0)
     {
-      if (!strcmp (token, "HELLO"))
-	{
-	  /* HELLO $version $compiler $cookie  */
-	  const char *ver = client_token (client);
-	  const char *compiler = ver ? client_token (client) : NULL;
-	  char *ident = &client->buf[client->buf_pos];
-	  char *e = ident;
-	  unsigned long cookie = ident ? strtoul (ident, &e, 0) : 0;
-	  struct child *job = ident && !*e
-	    ? find_job_by_cookie ((void *)cookie) : NULL;
+      /* HELLO $version $compiler $cookie  */
+      const char *ver = client_token (client);
+      const char *compiler = ver ? client_token (client) : NULL;
+      char *ident = &client->buf[client->buf_pos];
+      char *e = ident;
+      unsigned long cookie = ident ? strtoul (ident, &e, 0) : 0;
+      struct child *job = ident && !*e
+        ? find_job_by_cookie ((void *)cookie) : NULL;
 
-	  (void)compiler;
-	  if (!job)
-	    req->u.resp = "Cannot find matching job";
-	  else
-	    {
-	      client->job = job;
-	      req->code = CC_HANDSHAKE;
-	    }
-	}
+      (void)compiler;
+      if (!job)
+        req->u.resp = "Cannot find matching job";
       else
-	req->u.resp = "Expected handshake";
+      {
+        client->job = job;
+        req->code = CC_HANDSHAKE;
+      }
     }
+    else
+      req->u.resp = "Expected handshake";
+  }
   else
+  {
+    /* Same order as enum response_codes.  */
+    static const char *const words[] = 
     {
-      /* Same order as enum response_codes.  */
-      static const char *const words[] = 
-	{
-	  "IMPORT",  /* IMPORT $modulename  */
-	  "INCLUDE", /* INCLUDE $includefile  */
-	  "EXPORT",  /* EXPORT $modulename  */
-	  "DONE",    /* DONE $modulename  */
-	  NULL
-	};
-      unsigned code;
+      "IMPORT",  /* IMPORT $modulename  */
+      "INCLUDE", /* INCLUDE $includefile  */
+      "EXPORT",  /* EXPORT $modulename  */
+      "DONE",    /* DONE $modulename  */
+      NULL
+    };
+    unsigned code;
 
-      for (code = CC_IMPORT; code != CC_ERROR; code++)
-	if (!strcmp (token, words[code - CC_IMPORT]))
-	  {
-	    char *operand = client_token (client);
-	    if (!operand)
-	      {
-		req->u.resp = "Malformed request";
-		break;
-	      }
-	    else
-	      {
-		/* look for a target called {modulename}.{MODULE_SUFFIX}  */
-		size_t len = strlen (operand);
-		char *target_name = (char *)xmalloc (len + 2 + strlen (MODULE_SUFFIX));
-		struct file *f;
+    for (code = CC_IMPORT; code != CC_ERROR; code++)
+      if (!strcmp (token, words[code - CC_IMPORT]))
+      {
+        char *operand = client_token (client);
+        if (!operand)
+        {
+          req->u.resp = "Malformed request";
+          break;
+        }
+        else
+        {
+          /* look for a target called {modulename}.{MODULE_SUFFIX}  */
+          size_t len = strlen (operand);
+          char *target_name = (char *)xmalloc (len + 2 + strlen (MODULE_SUFFIX));
+          struct file *f;
 
-		memcpy (target_name, operand, len);
-		strcpy (target_name + len, "." MODULE_SUFFIX);
+          memcpy (target_name, operand, len);
+          strcpy (target_name + len, "." MODULE_SUFFIX);
 
-		f = lookup_file (target_name);
-		if (code == CC_INCLUDE)
-		  {
-		    // FIXME: think about remapping.
-		    req->code = f ? CC_TRANSLATE : CC_INCLUDE;
-		    req->u.resp = "";
-		    break;
-		  }
+          f = lookup_file (target_name);
+          if (code == CC_INCLUDE)
+          {
+            // FIXME: think about remapping.
+            req->code = f ? CC_TRANSLATE : CC_INCLUDE;
+            req->u.resp = "";
+            break;
+          }
 
-		if (!f)
-		  {
-		    f = enter_file (strcache_add (target_name));
-		    f->last_mtime = NONEXISTENT_MTIME;
-		    f->mtime_before_update = NONEXISTENT_MTIME;
-		  }
+          if (!f)
+          {
+            f = enter_file (strcache_add (target_name));
+            f->last_mtime = NONEXISTENT_MTIME;
+            f->mtime_before_update = NONEXISTENT_MTIME;
+          }
 
-		f->phony = 1;
-		f->is_target = 1;
-		if (!f->deps)
-		  try_implicit_rule (f, 0);
-		free (target_name);
+          f->phony = 1;
+          f->is_target = 1;
+          if (!f->deps)
+            try_implicit_rule (f, 0);
+          free (target_name);
 
-		/* There should be exactly one dependency.  */
-		if (!f->deps)
-		  req->u.resp = "Unknown module name";
-		else if (f->deps->next)
-		  req->u.resp = "Ambiguous module name";
-		else if (code == CC_DONE)
-		  {
-		    /* Inform any waiters, they may continue.  */
-		    mapper_file_finish (f);
-		    req->code = (response_codes)code;
-		  }
-		else if (code == CC_EXPORT
-			 || f->command_state == cs_finished)
-		  {
-		    client_response (req, f, NULL);
-		    req->code = (response_codes)code;
-		  }
-		else
-		  {
-		    if (!f->mapper_target)
-		      {
-			f->deps->file->precious = 1;
-			add_mapper_goal (f);
-			// FIXME: add .o dep to OBJS?
-		      }
+          /* There should be exactly one dependency.  */
+          if (!f->deps)
+            req->u.resp = "Unknown module name";
+          else if (f->deps->next)
+            req->u.resp = "Ambiguous module name";
+          else if (code == CC_DONE)
+          {
+            /* Inform any waiters, they may continue.  */
+            mapper_file_finish (f);
+            req->code = (response_codes)code;
+          }
+          else if (code == CC_EXPORT
+            || f->command_state == cs_finished)
+          {
+            client_response (req, f, NULL);
+            req->code = (response_codes)code;
+          }
+          else
+          {
+            if (!f->mapper_target)
+            {
+              f->deps->file->precious = 1;
+              add_mapper_goal (f);
+              // FIXME: add .o dep to OBJS?
+            }
 
-		    req->code = CC_IMPORTING;
-		    req->u.file = f;
-		    client->num_awaiting++;
-		  }
-		break;
-	      }
-	  }
-    }
+            req->code = CC_IMPORTING;
+            req->u.file = f;
+            client->num_awaiting++;
+          }
+          break;
+        }
+      }
+  }
 
   client->num_requests++;
 
@@ -674,17 +672,41 @@ mapper_post_pselect (int r, fd_set *readers)
   int blocked = 0;
   unsigned ix;
 
+  module_resolver rr;
+
   if (sock_fd >= 0 && FD_ISSET (sock_fd, readers))
     {
       r--;
       new_client ();
+      fprintf(stderr, "new_client here\n");
     }
 
   if (r)
     /* Do backwards because reading can cause client deletion.  */
     for (ix = num_clients; ix--;)
       if (clients[ix]->reading && FD_ISSET(clients[ix]->fd, readers))
-	blocked |= client_read (clients[ix], ix);
+      {
+//        auto *server = new Cody::Server (&rr, clients[ix]->fd);
+//        //auto r = server->GetRequest();
+//
+//        fprintf(stderr, "server->Read()\n");
+//        auto r = server->Read();
+//
+//        fprintf(stderr, "server->ProcessRequests()\n");
+//        server->ProcessRequests ();
+//
+//        fprintf(stderr, "server->PrepareToWrite()\n");
+//        server->PrepareToWrite ();
+//
+//        // process the requests, do system() calls
+//        // bool b = server->SendResponse();
+//        // assert(b is correct);
+//
+//        blocked = true;
+//        break;
+//
+        blocked |= client_read (clients[ix], ix);
+      }
 
   return blocked;
 }
@@ -785,15 +807,19 @@ mapper_enabled (void)
    Listen for connections.
    Returns non-zero if enabled.  */
 
+//mapper_setup (const char *coption)
+
 int
 mapper_setup (const char *coption)
 {
 
-  std::string name("localhost:54322");
-//  int sock_fd = -1; /* Socket fd, otherwise stdin/stdout.  */
+  if(!coption) {
+    fprintf(stderr, "%s is not defined", MAPPER_VAR);
+  }
 
   char const *errmsg = nullptr;
-  std::string option = name;
+  std::string option(coption);
+  printf("make CXX_MAPPER: %s\n", option.c_str());
 
   int fd; 
 
@@ -813,47 +839,11 @@ mapper_setup (const char *coption)
     }
   }
 
-  printf("JR: fd %d\n", fd);
-
   sock_fd = fd;
 
-  fprintf(stderr, "JR: NETWORKING MODE\n");
-
-  fprintf(stderr, "JR: here\n");
+  sock_name = (char *)coption;
 
   //////////////////////////////////////////////////////////////////////////
-
-
-//  char const *errmsg = nullptr;
-//
-//  int fd; 
-//
-//  std::string option(coption);
-//
-//  auto colon = option.find_last_of (':');
-//  if (colon != option.npos)
-//  {
-//    /* Try a hostname:port address.  */
-//    char const *cptr = option.c_str () + colon;
-//    char *endp;
-//    unsigned port = strtoul (cptr + 1, &endp, 10);
-//
-//    if (port && endp != cptr + 1 && !*endp)
-//    {
-//      /* Ends in ':number', treat as ipv6 domain socket.  */
-//      option.erase (colon);
-////      fd = Cody::ListenInet6 (&errmsg, option.c_str (), port);
-//    }
-//  }
-//
-//  printf("JR: fd %d\n", fd);
-//
-//  sock_fd = fd;
-//
-//  fprintf(stderr, "JR: NETWORKING MODE\n");
-//
-//  fprintf(stderr, "JR: here\n");
-//
 //  int err = 0;
 //  const char *errmsg = NULL;
 //  size_t len = 0;
@@ -939,8 +929,8 @@ mapper_setup (const char *coption)
 //    }
 //
 //  if (sock_name && !errmsg)
-//    /* Force it to be undefined now, and we'll define it per-job.  */
-//    undefine_variable_global (MAPPER_VAR, strlen (MAPPER_VAR), o_automatic);
+    /* Force it to be undefined now, and we'll define it per-job.  */
+  undefine_variable_global (MAPPER_VAR, strlen (MAPPER_VAR), o_automatic);
 //  else
 //    {
 //      const char *arg;
@@ -956,7 +946,6 @@ mapper_setup (const char *coption)
 //
 //  if (!no_builtin_rules_flag)
 //    mapper_default_rules ();
-
   return 1;
 }
 
