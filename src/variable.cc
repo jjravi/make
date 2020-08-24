@@ -1091,8 +1091,6 @@ target_environment (struct file *file)
   if (assn)
     *result++ = assn;
 
-  printf("JR: here: %s\n", assn);
-
   v_slot = (struct variable **) table.ht_vec;
   v_end = v_slot + table.ht_size;
   for ( ; v_slot < v_end; v_slot++)

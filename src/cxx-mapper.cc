@@ -48,6 +48,8 @@ extern "C" {
 #include <stdio.h>
 #include <string>
 
+#include <cassert>
+
 #ifdef MAKE_CXX_MAPPER
 
 /* Just presume these exist for now.  */
@@ -66,7 +68,7 @@ extern "C" {
 
 #include <sys/select.h>
 
-#define MAPPER_VERSION 0
+#define MAPPER_VERSION 1
 
 #define HEADER_VAR "CXX_MODULE_HEADER"
 #define MAPPER_VAR "CXX_MODULE_MAPPER"
@@ -80,6 +82,7 @@ enum response_codes
   CC_IMPORT,
   CC_INCLUDE,
   CC_EXPORT,
+  CC_LTOCOMPILE,
   CC_DONE,
   CC_ERROR,
   CC_TRANSLATE,
@@ -96,26 +99,38 @@ struct client_request
   } u;
 };
 
-struct client_state 
-{
-  struct child *job;  /* The job this is for.  */
+class client_state : public Cody::Server {
 
-  char *buf;
-  size_t buf_size;
-  size_t buf_pos;
-
+public: 
   unsigned cix;
-  int fd;
 
-  int reading : 1;  /* Filling read buffer.  */
-  int bol : 1;
-  int last : 1;
-  int corking : 16;  /* number of lines, if corked.  */
+  client_state(Cody::Resolver *rr, int fd, int ix) : Cody::Server(rr, fd)
+  {
+    cix=ix;
+  }
 
-  struct client_request *requests;
-  unsigned num_requests;
-  unsigned num_awaiting;
 };
+
+//struct client_state 
+//{
+//  struct child *job;  /* The job this is for.  */
+//
+//  char *buf;
+//  size_t buf_size;
+//  size_t buf_pos;
+//
+//  unsigned cix;
+//  int fd;
+//
+//  int reading : 1;  /* Filling read buffer.  */
+//  int bol : 1;
+//  int last : 1;
+//  int corking : 16;  /* number of lines, if corked.  */
+//
+//  struct client_request *requests;
+//  unsigned num_requests;
+//  unsigned num_awaiting;
+//};
 
 static int sock_fd = -1;
 static char *sock_name = NULL;
@@ -123,15 +138,14 @@ static struct client_state **clients = NULL;
 static unsigned num_clients = 0;
 static unsigned alloc_clients = 0;
 static unsigned waiting_clients = 0;
+static module_resolver rr;
 
 static void
 delete_client (struct client_state *client, unsigned slot)
 {
   DB (DB_PLUGIN, ("mapper:%u destroyed\n", client->cix));
-  close (client->fd);
-  free (client->buf);
-  free (client->requests);
-  free (client);
+
+  delete client;
 
   if (slot + 1 != num_clients)
     clients[slot] = clients[num_clients-1];
@@ -171,20 +185,22 @@ new_client (void)
       return;
     }
 
-  client = (client_state *)xmalloc (sizeof (*client));
-  memset (client, 0, sizeof (*client));
-  client->cix = ++factory;
-  client->job = NULL;  /* Discovered during handshake.  */
-  client->fd = client_fd;
-  client->reading = 1;
-  client->buf_size = 10; /* Exercise expansion.  */
-  client->buf = (char *)xmalloc (client->buf_size);
+  client = new client_state(&rr, client_fd, ++factory);
 
-  client->buf_pos = 0;
-  client->bol = 1;
-  client->last = client->corking = 0;
-  client->num_requests = client->num_awaiting = 0;
-  client->requests = NULL;
+//  client = (client_state *)xmalloc (sizeof (*client));
+//  memset (client, 0, sizeof (*client));
+//  client->cix = ++factory;
+//  client->job = NULL;  /* Discovered during handshake.  */
+//  client->fd = client_fd;
+//  client->reading = 1;
+//  client->buf_size = 10; /* Exercise expansion.  */
+//  client->buf = (char *)xmalloc (client->buf_size);
+//
+//  client->buf_pos = 0;
+//  client->bol = 1;
+//  client->last = client->corking = 0;
+//  client->num_requests = client->num_awaiting = 0;
+//  client->requests = NULL;
 
   if (num_clients == alloc_clients)
     {
@@ -197,446 +213,10 @@ new_client (void)
   clients[num_clients++] = client;
 }
 
-static void
-client_print (struct client_state *client, const char *fmt, ...)
-{
-  size_t actual;
-  if (client->corking)
-    client->buf[client->buf_pos++] = '+';
-
-  for (;;)
-    {
-      va_list args;
-      size_t space;
-
-      va_start (args, fmt);
-      space = client->buf_size - client->buf_pos;
-      actual = vsnprintf (client->buf + client->buf_pos, space, fmt, args);
-      va_end (args);
-      /* Guarantee 3 trailing elts.  */
-      if (actual + 3 <= space)
-	break;
-      client->buf_size *= 2;
-      client->buf = (char *)xrealloc (client->buf, client->buf_size);
-      if (actual < space)
-	break;
-    }
-  DB (DB_PLUGIN, ("mapper:%u sending '%.*s'\n",
-		  client->cix, (int)(actual + client->corking),
-		  &client->buf[client->buf_pos - client->corking]));
-  client->buf_pos += actual;
-  client->buf[client->buf_pos++] = '\n';
-}
-
-static char *
-client_token (struct client_state *client)
-{
-  char *ptr = &client->buf[client->buf_pos];
-  char *token = ptr;
-
-  token = ptr;
-  while (*ptr && !isblank (*ptr))
-    ptr++;
-
-  if (token == ptr)
-    token = NULL;
-  else if (*ptr)
-    {
-      *ptr++ = 0;
-      while (isblank (*ptr))
-	ptr++;
-    }
-
-  client->buf_pos = ptr - client->buf;
-  return token;
-}
-
-/* Generate the BMI name from the dependency of file, removing the
-   prefix.   */
-
-static void
-client_response (struct client_request *req, struct file *file, const char *why)
-{
-  if (!file)
-    {
-      req->u.resp = why;
-      req->code = CC_ERROR;
-    }
-  else if (file->update_status == us_failed)
-    {
-      req->u.resp = "Failed to build module";
-      req->code = CC_ERROR;
-    }
-  else
-    {
-      /* Not a rule-specific expansion.  */
-      char *repo = variable_expand ("$(" PREFIX_VAR ")");
-      const char *name = file->deps->file->name;
-      size_t len = strlen (repo);
-
-      if (strlen (name) > len && !memcmp (repo, name, len))
-	name += len;
-
-      req->u.resp = name;
-    }
-}
-
-static void
-client_write (struct client_state *client, unsigned slot)
-{
-  unsigned ix;
-
-  client->buf_pos = 0;
-  client->corking = client->num_requests > 1;
-
-  for (ix = 0; ix != client->num_requests; ix++)
-    {
-      struct client_request *req = &client->requests[ix];
-
-      switch (req->code)
-	{
-	case CC_HANDSHAKE:
-	  {
-	    char *repo = variable_expand ("$(" PREFIX_VAR ")");
-	    client_print (client, "HELLO %u GNUMake %s", MAPPER_VERSION, repo);
-	  }
-	  break;
-
-	case CC_ERROR:
-	  client_print (client, "ERROR %s", req->u.resp);
-	  break;
-
-	case CC_INCLUDE:
-	  client_print (client, "INCLUDE %s", req->u.resp);
-	  break;
-
-	case CC_TRANSLATE:
-	  client_print (client, "IMPORT %s", req->u.resp);
-	  break;
-	  
-	case CC_IMPORT:
-	case CC_EXPORT:
-	  client_print (client, "OK %s", req->u.resp);
-	  break;
-
-	case CC_DONE:;
-	case CC_IMPORTING:;
-	}
-    }
-
-  free (client->requests);
-  client->requests = NULL;
-  client->num_requests = client->num_awaiting = 0;
-
-  if (client->buf_pos)
-    {
-      ssize_t bytes;
-
-      if (client->corking)
-	{
-	  client->buf[client->buf_pos++] = '\n';
-	  DB (DB_PLUGIN, ("mapper:%u sending ''\n", client->cix));
-	}
-      EINTRLOOP (bytes, write (client->fd, client->buf, client->buf_pos));
-      if (bytes < 0 || (size_t)bytes != client->buf_pos)
-	{
-	  delete_client (client, slot);
-	  return;
-	}
-    }
-
-  /* Set up for more reading.  */
-  client->buf_pos = 0;
-  client->bol = 1;
-  client->corking = 0;
-  client->last = 0;
-  client->reading = 1;
-}
-
-static void
-do_mapper_file_finish (struct file *f, const char *why)
-{
-  unsigned slot, ix;
-
-  /* Do backwards because completion could delete a client.  */
-  for (slot = num_clients; slot--;)
-    if (clients[slot]->num_awaiting)
-      {
-	struct client_state *client = clients[slot];
-	for (ix = client->num_requests; ix--;)
-	  {
-	    struct client_request *req = &client->requests[ix];
-
-	    if (req->code == CC_IMPORTING && (!f || req->u.file == f))
-	      {
-		client_response (req, f, why);
-		req->code = CC_IMPORT;
-		client->num_awaiting--;
-	      }
-	  }
-
-	if (!client->num_awaiting)
-	  {
-	    /* Unpause the job.  This could lead to short-term over commit,
-	       as we may have a still-running job borrowing the paused
-	       slot.  */
-	    DB (DB_JOBS, ("mapper:%u unpausing job %s\n", client->cix,
-			  client->job->file->name));
-	    jobs_paused--;
-	    if (job_slots)
-	      job_slots--;
-	    waiting_clients--;
-	    client_write (client, slot);
-	  }
-      }
-}
-
 void
 mapper_file_finish (struct file *file)
 {
-  do_mapper_file_finish (file, "Make terminated");
-}
-
-static int
-client_parse (struct client_state *client)
-{
-  char *token;
-  struct client_request *req = &client->requests[client->num_requests];
-
-  req->code = CC_ERROR;
-  req->u.resp = "Unknown request";
-
-  DB (DB_PLUGIN, ("mapper:%u processing '%s'\n",
-		  client->cix, &client->buf[client->buf_pos]));
-  if (client->buf[client->buf_pos] == '+'
-      || client->buf[client->buf_pos] == '-')
-    client->buf_pos++;
-
-  token = client_token (client);
-  if (!token)
-  {
-    client->buf_pos++;
-    return 1;
-  }
-  else if (!client->job)
-  {
-    if (strncmp (token, "HELLO", 5) == 0)
-    {
-      /* HELLO $version $compiler $cookie  */
-      const char *ver = client_token (client);
-      const char *compiler = ver ? client_token (client) : NULL;
-      char *ident = &client->buf[client->buf_pos];
-      char *e = ident;
-      unsigned long cookie = ident ? strtoul (ident, &e, 0) : 0;
-      struct child *job = ident && !*e
-        ? find_job_by_cookie ((void *)cookie) : NULL;
-
-      (void)compiler;
-      if (!job)
-        req->u.resp = "Cannot find matching job";
-      else
-      {
-        client->job = job;
-        req->code = CC_HANDSHAKE;
-      }
-    }
-    else
-      req->u.resp = "Expected handshake";
-  }
-  else
-  {
-    /* Same order as enum response_codes.  */
-    static const char *const words[] = 
-    {
-      "IMPORT",  /* IMPORT $modulename  */
-      "INCLUDE", /* INCLUDE $includefile  */
-      "EXPORT",  /* EXPORT $modulename  */
-      "DONE",    /* DONE $modulename  */
-      NULL
-    };
-    unsigned code;
-
-    for (code = CC_IMPORT; code != CC_ERROR; code++)
-      if (!strcmp (token, words[code - CC_IMPORT]))
-      {
-        char *operand = client_token (client);
-        if (!operand)
-        {
-          req->u.resp = "Malformed request";
-          break;
-        }
-        else
-        {
-          /* look for a target called {modulename}.{MODULE_SUFFIX}  */
-          size_t len = strlen (operand);
-          char *target_name = (char *)xmalloc (len + 2 + strlen (MODULE_SUFFIX));
-          struct file *f;
-
-          memcpy (target_name, operand, len);
-          strcpy (target_name + len, "." MODULE_SUFFIX);
-
-          f = lookup_file (target_name);
-          if (code == CC_INCLUDE)
-          {
-            // FIXME: think about remapping.
-            req->code = f ? CC_TRANSLATE : CC_INCLUDE;
-            req->u.resp = "";
-            break;
-          }
-
-          if (!f)
-          {
-            f = enter_file (strcache_add (target_name));
-            f->last_mtime = NONEXISTENT_MTIME;
-            f->mtime_before_update = NONEXISTENT_MTIME;
-          }
-
-          f->phony = 1;
-          f->is_target = 1;
-          if (!f->deps)
-            try_implicit_rule (f, 0);
-          free (target_name);
-
-          /* There should be exactly one dependency.  */
-          if (!f->deps)
-            req->u.resp = "Unknown module name";
-          else if (f->deps->next)
-            req->u.resp = "Ambiguous module name";
-          else if (code == CC_DONE)
-          {
-            /* Inform any waiters, they may continue.  */
-            mapper_file_finish (f);
-            req->code = (response_codes)code;
-          }
-          else if (code == CC_EXPORT
-            || f->command_state == cs_finished)
-          {
-            client_response (req, f, NULL);
-            req->code = (response_codes)code;
-          }
-          else
-          {
-            if (!f->mapper_target)
-            {
-              f->deps->file->precious = 1;
-              add_mapper_goal (f);
-              // FIXME: add .o dep to OBJS?
-            }
-
-            req->code = CC_IMPORTING;
-            req->u.file = f;
-            client->num_awaiting++;
-          }
-          break;
-        }
-      }
-  }
-
-  client->num_requests++;
-
-  while (client->buf[client->buf_pos])
-    client->buf_pos++;
-  client->buf_pos++;
-
-  return 1;
-}
-
-static int
-client_process (struct client_state *client, unsigned slot)
-{
-  unsigned reqs = client->corking + !client->corking;
-  size_t end = client->buf_pos;
-
-  client->reading = 0;
-  client->requests = (client_request *)xmalloc (reqs * sizeof (*client->requests));
-  client->num_requests = client->num_awaiting = 0;
-
-  client->buf_pos = 0;
-  while (end != client->buf_pos && client_parse (client))
-    continue;
-
-  if (client->num_awaiting)
-    {
-      /* Even though the thing we're waiting on might have already
-         started, it is still correct to note that we're paused, so
-         that something else can run while we wait.  */
-      DB (DB_JOBS, ("mapper:%u pausing job %s\n", client->cix,
-		    client->job->file->name));
-      jobs_paused++;
-      if (job_slots)
-	job_slots++;
-      waiting_clients++;
-    }
-  else
-    client_write (client, slot);
-
-  return client->num_awaiting != 0;
-}
-
-/* Read data from a client.  Return non-zero if we blocked.  */
-
-static int
-client_read (struct client_state *client, unsigned slot)
-{
-  ssize_t bytes;
-
-  if (client->buf_size - client->buf_pos < 2)
-    {
-      client->buf_size *= 2;
-      client->buf = (char *)xrealloc (client->buf, client->buf_size);
-    }
-
-  bytes = read (client->fd, client->buf + client->buf_pos,
-		client->buf_size - client->buf_pos - 1);
-  if (bytes <= 0)
-    {
-      /* Error or EOF.  */
-      delete_client (client, slot);
-      return 0;
-    }
-
-  DB (DB_PLUGIN, ("mapper:%u read %u bytes '%.*s'\n",
-		  client->cix, (unsigned) bytes,
-		  (int) bytes, client->buf + client->buf_pos));
-
-  /* Data.  */
-  for (; bytes;)
-    {
-      char *probe;
-      size_t len;
-
-      if (client->bol)
-	{
-	  int plus = client->buf[client->buf_pos] == '+';
-	  if (client->corking)
-	    {
-	      client->corking++;
-	      client->last = !plus;
-	    }
-	  else
-	    client->corking = plus;
-	  client->bol = 0;
-	}
-
-      probe = (char *)memchr (client->buf + client->buf_pos, '\n', bytes);
-      if (!probe)
-	break;
-
-      len = probe - (client->buf + client->buf_pos) + 1;
-      client->buf_pos += len;
-      client->buf[client->buf_pos - 1] = 0;
-      bytes -= len;
-      client->bol = 1;
-    }
-  client->buf_pos += bytes;
-
-  if (!client->bol || !client->buf_pos)
-    return 0;
-
-  if (client->corking && !client->last)
-    return 0;
-
-  return client_process (client, slot);
+//  do_mapper_file_finish (file, "Make terminated");
 }
 
 /* Set bits in READERS for clients we're listening to.  */
@@ -647,22 +227,65 @@ mapper_pre_pselect (int hwm, fd_set *readers)
   unsigned ix;
 
   if (sock_fd >=0)
-    {
-      if (hwm < sock_fd)
-	hwm = sock_fd;
-      FD_SET (sock_fd, readers);
-    }
+  {
+    if (hwm < sock_fd)
+      hwm = sock_fd;
+    FD_SET (sock_fd, readers);
+  }
 
   for (ix = num_clients; ix--;)
-    if (clients[ix]->reading)
-      {
-	if (hwm < clients[ix]->fd)
-	  hwm = clients[ix]->fd;
-	FD_SET (clients[ix]->fd, readers);
-      }
-  
+    if (clients[ix]->GetDirection() == Cody::Server::READING)
+    {
+      int fd = clients[ix]->GetFDRead();
+
+      if (hwm < fd)
+        hwm = fd;
+      FD_SET (fd, readers);
+    }
+
   return hwm;
 }
+
+/* Read data from a client.  Return non-zero if we blocked.  */
+
+static int
+client_read (struct client_state *client, unsigned slot)
+{
+
+  switch (client->GetDirection ())
+  {
+  case Cody::Server::READING:
+    //fprintf(stderr, "client->Read() %d\n", __LINE__);
+    if (int err = client->Read ()) {
+      fprintf(stderr, "client->Read() err: %d\n", err);
+      sleep(1);
+      return !(err == EINTR || err == EAGAIN);
+    }
+
+    client->ProcessRequests ();
+
+    client->PrepareToWrite ();
+
+//    break;
+  
+  case Cody::Server::WRITING:
+    //fprintf(stderr, "server->Write()\n");
+    while (int err = client->Write ())
+      if (!(err == EINTR || err == EAGAIN)){
+        return true;
+      }
+    client->PrepareToRead ();
+    break;
+  
+  default:
+    // We should never get here
+    return true;
+  }
+  
+  return false;
+}
+
+
 
 /* Process bits in READERS for clients that have something for us.  */
 
@@ -671,8 +294,6 @@ mapper_post_pselect (int r, fd_set *readers)
 {
   int blocked = 0;
   unsigned ix;
-
-  module_resolver rr;
 
   if (sock_fd >= 0 && FD_ISSET (sock_fd, readers))
     {
@@ -684,28 +305,11 @@ mapper_post_pselect (int r, fd_set *readers)
   if (r)
     /* Do backwards because reading can cause client deletion.  */
     for (ix = num_clients; ix--;)
-      if (clients[ix]->reading && FD_ISSET(clients[ix]->fd, readers))
+      if ((clients[ix]->GetDirection() == Cody::Server::READING) && 
+        FD_ISSET(clients[ix]->GetFDRead(), readers))
       {
-//        auto *server = new Cody::Server (&rr, clients[ix]->fd);
-//        //auto r = server->GetRequest();
-//
-//        fprintf(stderr, "server->Read()\n");
-//        auto r = server->Read();
-//
-//        fprintf(stderr, "server->ProcessRequests()\n");
-//        server->ProcessRequests ();
-//
-//        fprintf(stderr, "server->PrepareToWrite()\n");
-//        server->PrepareToWrite ();
-//
-//        // process the requests, do system() calls
-//        // bool b = server->SendResponse();
-//        // assert(b is correct);
-//
-//        blocked = true;
-//        break;
-//
         blocked |= client_read (clients[ix], ix);
+        //server->ProcessRequests ();
       }
 
   return blocked;
@@ -718,44 +322,50 @@ mapper_wait (int *status)
   sigset_t empty;
   struct timespec spec;
   struct timespec *specp = NULL;
-
+  
   spec.tv_sec = spec.tv_nsec = 0;
-
+  
   sigemptyset (&empty);
   for (;;)
-    {
-      fd_set readfds;
-      int hwm = 0;
-
-      if (!specp && waiting_clients == num_clients
-	  && jobs_paused == (job_slots ? job_slots_used : jobserver_tokens))
-	/* Deadlocked.  */
-	do_mapper_file_finish (NULL, "Circular module dependency");
-
-      FD_ZERO (&readfds);
-      hwm = mapper_pre_pselect (0, &readfds);
-      r = pselect (hwm + 1, &readfds, NULL, NULL, specp, &empty);
-      if (r < 0)
-        switch (errno)
-          {
-          case EINTR:
-	    {
-	      /* SIGCHLD will show up as an EINTR.  We're in a loop,
-		 so no need to EINTRLOOP here.  */
-	      pid_t pid = waitpid ((pid_t)-1, status, WNOHANG);
-	      if (pid > 0)
-		return pid;
-	    }
-	    break;
-
-          default:
-            pfatal_with_name (_("pselect mapper"));
-          }
-      else if (!r)
-	return 0; /* Timed out, but have new suspended job.  */
-      else if (mapper_post_pselect (r, &readfds))
-	specp = &spec;
+  {
+    fd_set readfds;
+    int hwm = 0;
+    
+    if (!specp && waiting_clients == num_clients
+      && jobs_paused == (job_slots ? job_slots_used : jobserver_tokens)) {
+      //do_mapper_file_finish (NULL, "Circular module dependency");
+      abort();
     }
+    
+    FD_ZERO (&readfds);
+    hwm = mapper_pre_pselect (0, &readfds);
+    r = pselect (hwm + 1, &readfds, NULL, NULL, specp, &empty);
+    if (r < 0)
+      switch (errno)
+      {
+      case EINTR:
+        {
+          fprintf(stderr, "pselect r: %d\n", errno);
+          return getpid();
+          
+          // TODO: stop when child process dies?
+
+          /* SIGCHLD will show up as an EINTR.  We're in a loop,
+             so no need to EINTRLOOP here.  */
+          //pid_t pid = waitpid ((pid_t)-1, status, WNOHANG);
+          //if (pid > 0)
+          //  return pid;
+        }
+        break;
+    
+      default:
+        pfatal_with_name (_("pselect mapper"));
+      }
+    else if (!r)
+      return 0; /* Timed out, but have new suspended job.  */
+    else if (mapper_post_pselect (r, &readfds))
+      specp = &spec;
+  }
 }
 
 /* Install the implicit rules.  */
@@ -807,8 +417,6 @@ mapper_enabled (void)
    Listen for connections.
    Returns non-zero if enabled.  */
 
-//mapper_setup (const char *coption)
-
 int
 mapper_setup (const char *coption)
 {
@@ -843,109 +451,11 @@ mapper_setup (const char *coption)
 
   sock_name = (char *)coption;
 
-  //////////////////////////////////////////////////////////////////////////
-//  int err = 0;
-//  const char *errmsg = NULL;
-//  size_t len = 0;
-//#ifdef NETWORKING
-//  int af = AF_UNSPEC;
-//#ifdef HAVE_AF_UNIX
-//  struct sockaddr_un un;
-//  size_t un_len = 0;
-//#endif
-//#endif
-//  char *writable;
-//
-//  if (!option || !option[0])
-//    {
-//      char *var = variable_expand ("$(" MAPPER_VAR ")");
-//      if (!var[0] && !option)
-//	return 0;
-//      option = var;
-//    }
-//
-//  if (!option[0] || (option[0] == '=' && !option[1]))
-//    {
-//      pid_t pid = getpid ();
-//      writable = (char *)xmalloc (30);
-//      len = snprintf (writable, 30, "=/tmp/make-mapper-%d", (int)pid);
-//    }
-//  else
-//    {
-//      writable = xstrdup (option);
-//      len = strlen (option);
-//    }
-//
-//  /* Does it look like a socket?  */
-//  if (writable[0] == '=')
-//    {
-//      /* A local socket.  */
-//#ifdef HAVE_AF_UNIX
-//      if (len < sizeof (un.sun_path))
-//	{
-//	  memset (&un, 0, sizeof (un));
-//	  un.sun_family = AF_UNIX;
-//	  memcpy (un.sun_path, writable + 1, len);
-//	}
-//      un_len = offsetof (struct sockaddr_un, sun_path) + len + 1;
-//      af = AF_UNIX;
-//#else
-//      errmsg = "unix protocol unsupported";
-//#endif
-//      sock_name = writable;
-//    }
-//
-//  if (sock_name)
-//    {
-//#ifdef NETWORKING
-//      if (af != AF_UNSPEC)
-//	{
-//	  sock_fd = socket (af, SOCK_STREAM, 0);
-//	  if (sock_fd >= 0)
-//	    fd_noinherit (sock_fd);
-//	}
-//#endif
-//#ifdef HAVE_AF_UNIX
-//      if (un_len)
-//	if (sock_fd < 0 || bind (sock_fd, (struct sockaddr *)&un, un_len) < 0)
-//	  if (sock_fd >= 0)
-//	    {
-//	      close (sock_fd);
-//	      sock_fd = -1;
-//	    }
-//#endif
-//      if (sock_fd < 0 && !errmsg)
-//	{
-//	  err = errno;
-//	  errmsg = "binding socket";
-//	}
-//
-//      /* I don't know what a good listen queue length might be.  */
-//      if (!errmsg && listen (sock_fd, 5))
-//	{
-//	  err = errno;
-//	  errmsg = "listening";
-//	}
-//    }
-//
-//  if (sock_name && !errmsg)
-    /* Force it to be undefined now, and we'll define it per-job.  */
+  /* Force it to be undefined now, and we'll define it per-job.  */
   undefine_variable_global (MAPPER_VAR, strlen (MAPPER_VAR), o_automatic);
-//  else
-//    {
-//      const char *arg;
-//
-//      if (!errmsg)
-//	errmsg = "initialization";
-//      arg = (!sock_name ? "Option malformed"
-//	     : !err ? "Facility not provided" : strerror (err));
-//      error (NILF, strlen (errmsg) + strlen (option) + strlen (arg),
-//	     "failed %s of mapper `%s': %s", errmsg, option, arg);
-//      free (writable);
-//    }
-//
-//  if (!no_builtin_rules_flag)
-//    mapper_default_rules ();
+
+  // if (!no_builtin_rules_flag)
+  //   mapper_default_rules ();
   return 1;
 }
 

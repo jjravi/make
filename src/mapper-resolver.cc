@@ -324,7 +324,7 @@ int module_resolver::LTOCompileRequest (Cody::Server *s, std::vector<std::string
   //system((const char *)new_argv);
 
   // TODO: send back a compile status response
-  s->LTOResponse();
+  s->LTOResponse("success");
   return 0;
 }
 
