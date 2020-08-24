@@ -145,6 +145,8 @@ delete_client (struct client_state *client, unsigned slot)
 {
   DB (DB_PLUGIN, ("mapper:%u destroyed\n", client->cix));
 
+  close (client->GetFDRead ());
+
   delete client;
 
   if (slot + 1 != num_clients)
@@ -255,7 +257,6 @@ client_read (struct client_state *client, unsigned slot)
   switch (client->GetDirection ())
   {
   case Cody::Server::READING:
-    //fprintf(stderr, "client->Read() %d\n", __LINE__);
     if (int err = client->Read ()) {
       fprintf(stderr, "client->Read() err: %d\n", err);
       sleep(1);
@@ -263,13 +264,10 @@ client_read (struct client_state *client, unsigned slot)
     }
 
     client->ProcessRequests ();
-
     client->PrepareToWrite ();
-
-//    break;
+    // break;
   
   case Cody::Server::WRITING:
-    //fprintf(stderr, "server->Write()\n");
     while (int err = client->Write ())
       if (!(err == EINTR || err == EAGAIN)){
         return true;
@@ -308,8 +306,14 @@ mapper_post_pselect (int r, fd_set *readers)
       if ((clients[ix]->GetDirection() == Cody::Server::READING) && 
         FD_ISSET(clients[ix]->GetFDRead(), readers))
       {
-        blocked |= client_read (clients[ix], ix);
-        //server->ProcessRequests ();
+
+        int cblocked = client_read (clients[ix], ix);
+
+        if(cblocked) {
+          delete_client (clients[ix], ix);
+        }
+
+        blocked |= cblocked;
       }
 
   return blocked;
@@ -346,15 +350,13 @@ mapper_wait (int *status)
       case EINTR:
         {
           fprintf(stderr, "pselect r: %d\n", errno);
-          return getpid();
           
           // TODO: stop when child process dies?
-
           /* SIGCHLD will show up as an EINTR.  We're in a loop,
              so no need to EINTRLOOP here.  */
-          //pid_t pid = waitpid ((pid_t)-1, status, WNOHANG);
-          //if (pid > 0)
-          //  return pid;
+          pid_t pid = waitpid ((pid_t)-1, status, WNOHANG);
+          if (pid > 0)
+            return pid;
         }
         break;
     
