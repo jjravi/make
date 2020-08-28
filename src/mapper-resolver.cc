@@ -37,6 +37,22 @@ along with GCC; see the file COPYING3.  If not see
 #include <vector>
 #include <iterator>
 
+///////////////////////
+extern "C" { 
+#include "makeint.h"
+#include "os.h"
+#include "filedef.h"
+#include "variable.h"
+#include "dep.h"
+#include "job.h"
+#include "rule.h"
+#include "debug.h"
+#include "commands.h"
+}
+/////////////////////////
+
+#define MODULE_SUFFIX "c++m"
+
 module_resolver::module_resolver (bool def)
   : provide_default (def)
 {
@@ -290,38 +306,70 @@ int module_resolver::LTOCompileRequest (Cody::Server *s, std::vector<std::string
 
   std::string temp_cmd = result_stream.str();
 
-  char **new_argv = (char **)malloc((args.size()) * sizeof(char *));
-  new_argv[args.size()-1] = NULL;
-
-  int i = 0;
-
   fprintf(stderr, "\tJR: resolve lto\n");
-
-  for (std::vector<std::string>::iterator arg = args.begin() ; arg != args.end(); ++arg, ++i) {
-
-    // ignore "LTO-COMPILE"
-    if(i == 0) continue;
-    //new_argv[i++] = (char *)malloc(args[i].length() * sizeof(char)); 
-
-    // TODO: type safety
-    new_argv[i-1] = (char *)(*arg).c_str();
-    //fprintf(stderr, "*arg[?] = %s\n", (*arg).c_str());
-    //fprintf(stderr, "*new_argv[%d] = %s\n", i-1, new_argv[i-1]);
-  }
-
   printf("command: \n");
   printf("\t%s\n", temp_cmd.c_str());
 
+  char *new_argv = (char *)temp_cmd.c_str();
+  // printf("\t%s\n", temp_cmd.c_str());
   //fprintf(stderr, "\tcalling fork_execute\n");
   //fork_execute (new_argv[0], new_argv, true);
   
-  printf("--start execute--\n");
-  fflush(stdout);
-  system(temp_cmd.c_str());
-  printf("--done execute--\n");
-  fflush(stdout);
+  ///////////////////////////////////////////////////////////
+  /* look for a target called {modulename}.{MODULE_SUFFIX}  */
 
-  //system((const char *)new_argv);
+  std::string temp_op("john");
+  //char *operand = client_token (client);
+  char *operand = (char *)temp_op.c_str();
+
+  size_t len = strlen (operand);
+  char *target_name = (char *)xmalloc (len + 2 + strlen (MODULE_SUFFIX));
+  struct file *f;
+
+  // char *testing = variable_expand(
+
+  memcpy (target_name, operand, len);
+  strcpy (target_name + len, "." MODULE_SUFFIX);
+
+  f = lookup_file (target_name);
+
+  if (!f)
+  {
+    f = enter_file (strcache_add (target_name));
+
+    f->phony = 1;
+    f->is_target = 1;
+    f->last_mtime = NONEXISTENT_MTIME;
+    f->mtime_before_update = NONEXISTENT_MTIME;
+    f->cmds = (commands *)xmalloc (sizeof (struct commands));
+
+    f->cmds->fileinfo.filenm = 0;
+    f->cmds->fileinfo.lineno = 0;
+    f->cmds->fileinfo.offset = 0;
+
+    f->cmds->commands = (char *)xmalloc (temp_cmd.length()*sizeof(char));
+    strncpy(f->cmds->commands, new_argv, temp_cmd.length());
+    // strncpy(f->cmds->commands, *new_argv, temp_cmd.length());
+
+    // f->cmds->commands = xrealloc (commands, commands_len);
+    f->cmds->command_lines = 0;
+    f->cmds->recipe_prefix = RECIPEPREFIX_DEFAULT;
+    f->lto_command = 1;
+    // f->cmds->commands =
+    // try_implicit_rule (f, 0);
+  }
+
+  execute_file_commands( f );
+  free (target_name);
+
+  // TODO
+  // client->num_awaiting++;
+  ///////////////////////////////////////////////////////////
+  // TODO: wait here till the lto finishes
+  // sleep(1);
+  while (f->command_state == cs_running) {
+    reap_children (1, 0);
+  }
 
   // TODO: send back a compile status response
   s->LTOResponse("success");

@@ -1094,7 +1094,10 @@ reap_children (int block, int err)
       else
         lastc->next = c->next;
 
-      free_child (c);
+      // TODO: LTO fix lto memory leak
+      if(!c->file->lto_command) {
+        free_child (c);
+      }
 
       unblock_sigs ();
 
@@ -1723,115 +1726,125 @@ new_job (struct file *file)
   /* Start saving output in case the expansion uses $(info ...) etc.  */
   OUTPUT_SET (&c->output);
 
-  /* Expand the command lines and store the results in LINES.  */
-  lines = (char **)xmalloc (cmds->ncommand_lines * sizeof (char *));
-  for (i = 0; i < cmds->ncommand_lines; ++i)
-    {
-      /* Collapse backslash-newline combinations that are inside variable
-         or function references.  These are left alone by the parser so
-         that they will appear in the echoing of commands (where they look
-         nice); and collapsed by construct_command_argv when it tokenizes.
-         But letting them survive inside function invocations loses because
-         we don't want the functions to see them as part of the text.  */
+  if(!c->file->lto_command)
+  {
+    /* Expand the command lines and store the results in LINES.  */
+    lines = (char **)xmalloc (cmds->ncommand_lines * sizeof (char *));
+    for (i = 0; i < cmds->ncommand_lines; ++i)
+      {
+        /* Collapse backslash-newline combinations that are inside variable
+           or function references.  These are left alone by the parser so
+           that they will appear in the echoing of commands (where they look
+           nice); and collapsed by construct_command_argv when it tokenizes.
+           But letting them survive inside function invocations loses because
+           we don't want the functions to see them as part of the text.  */
 
-      char *in, *out, *ref;
+        char *in, *out, *ref;
 
-      /* IN points to where in the line we are scanning.
-         OUT points to where in the line we are writing.
-         When we collapse a backslash-newline combination,
-         IN gets ahead of OUT.  */
+        /* IN points to where in the line we are scanning.
+           OUT points to where in the line we are writing.
+           When we collapse a backslash-newline combination,
+           IN gets ahead of OUT.  */
 
-      in = out = cmds->command_lines[i];
-      while ((ref = strchr (in, '$')) != 0)
-        {
-          ++ref;                /* Move past the $.  */
+        in = out = cmds->command_lines[i];
+        while ((ref = strchr (in, '$')) != 0)
+          {
+            ++ref;                /* Move past the $.  */
 
-          if (out != in)
-            /* Copy the text between the end of the last chunk
-               we processed (where IN points) and the new chunk
-               we are about to process (where REF points).  */
-            memmove (out, in, ref - in);
+            if (out != in)
+              /* Copy the text between the end of the last chunk
+                 we processed (where IN points) and the new chunk
+                 we are about to process (where REF points).  */
+              memmove (out, in, ref - in);
 
-          /* Move both pointers past the boring stuff.  */
-          out += ref - in;
-          in = ref;
+            /* Move both pointers past the boring stuff.  */
+            out += ref - in;
+            in = ref;
 
-          if (*ref == '(' || *ref == '{')
-            {
-              char openparen = *ref;
-              char closeparen = openparen == '(' ? ')' : '}';
-              char *outref;
-              int count;
-              char *p;
+            if (*ref == '(' || *ref == '{')
+              {
+                char openparen = *ref;
+                char closeparen = openparen == '(' ? ')' : '}';
+                char *outref;
+                int count;
+                char *p;
 
-              *out++ = *in++;   /* Copy OPENPAREN.  */
-              outref = out;
-              /* IN now points past the opening paren or brace.
-                 Count parens or braces until it is matched.  */
-              count = 0;
-              while (*in != '\0')
-                {
-                  if (*in == closeparen && --count < 0)
-                    break;
-                  else if (*in == '\\' && in[1] == '\n')
-                    {
-                      /* We have found a backslash-newline inside a
-                         variable or function reference.  Eat it and
-                         any following whitespace.  */
+                *out++ = *in++;   /* Copy OPENPAREN.  */
+                outref = out;
+                /* IN now points past the opening paren or brace.
+                   Count parens or braces until it is matched.  */
+                count = 0;
+                while (*in != '\0')
+                  {
+                    if (*in == closeparen && --count < 0)
+                      break;
+                    else if (*in == '\\' && in[1] == '\n')
+                      {
+                        /* We have found a backslash-newline inside a
+                           variable or function reference.  Eat it and
+                           any following whitespace.  */
 
-                      int quoted = 0;
-                      for (p = in - 1; p > ref && *p == '\\'; --p)
-                        quoted = !quoted;
+                        int quoted = 0;
+                        for (p = in - 1; p > ref && *p == '\\'; --p)
+                          quoted = !quoted;
 
-                      if (quoted)
-                        /* There were two or more backslashes, so this is
-                           not really a continuation line.  We don't collapse
-                           the quoting backslashes here as is done in
-                           collapse_continuations, because the line will
-                           be collapsed again after expansion.  */
+                        if (quoted)
+                          /* There were two or more backslashes, so this is
+                             not really a continuation line.  We don't collapse
+                             the quoting backslashes here as is done in
+                             collapse_continuations, because the line will
+                             be collapsed again after expansion.  */
+                          *out++ = *in++;
+                        else
+                          {
+                            /* Skip the backslash, newline, and whitespace.  */
+                            in += 2;
+                            NEXT_TOKEN (in);
+
+                            /* Discard any preceding whitespace that has
+                               already been written to the output.  */
+                            while (out > outref && ISBLANK (out[-1]))
+                              --out;
+
+                            /* Replace it all with a single space.  */
+                            *out++ = ' ';
+                          }
+                      }
+                    else
+                      {
+                        if (*in == openparen)
+                          ++count;
+
                         *out++ = *in++;
-                      else
-                        {
-                          /* Skip the backslash, newline, and whitespace.  */
-                          in += 2;
-                          NEXT_TOKEN (in);
+                      }
+                  }
+              }
+          }
 
-                          /* Discard any preceding whitespace that has
-                             already been written to the output.  */
-                          while (out > outref && ISBLANK (out[-1]))
-                            --out;
+        /* There are no more references in this line to worry about.
+           Copy the remaining uninteresting text to the output.  */
+        if (out != in)
+          memmove (out, in, strlen (in) + 1);
 
-                          /* Replace it all with a single space.  */
-                          *out++ = ' ';
-                        }
-                    }
-                  else
-                    {
-                      if (*in == openparen)
-                        ++count;
+        /* Finally, expand the line.  */
+        cmds->fileinfo.offset = i;
+        lines[i] = allocated_variable_expand_for_file (cmds->command_lines[i],
+                                                       file);
+      }
+    cmds->fileinfo.offset = 0;
+    c->command_lines = lines;
+    /* Fetch the first command line to be run.  */
+    job_next_command (c);
+  }
+  else {
+    // TODO: LTO more than one command
+    c->command_ptr = file->cmds->commands;
+    c->command_lines = &c->command_ptr;
+    c->command_line = 1;
 
-                      *out++ = *in++;
-                    }
-                }
-            }
-        }
-
-      /* There are no more references in this line to worry about.
-         Copy the remaining uninteresting text to the output.  */
-      if (out != in)
-        memmove (out, in, strlen (in) + 1);
-
-      /* Finally, expand the line.  */
-      cmds->fileinfo.offset = i;
-      lines[i] = allocated_variable_expand_for_file (cmds->command_lines[i],
-                                                     file);
-    }
-
-  cmds->fileinfo.offset = 0;
-  c->command_lines = lines;
-
-  /* Fetch the first command line to be run.  */
-  job_next_command (c);
+    // TODO: LTO need to used jobs borrowed for this
+    job_slots_used--;
+  }
 
   /* Wait for a job slot to be freed up.  If we allow an infinite number
      don't bother; also job_slots will == 0 if we're using the jobserver.  */

@@ -110,6 +110,7 @@ struct file
     unsigned int no_diag:1;     /* True if the file failed to update and no
                                    diagnostics has been issued (dontcare). */
     unsigned int mapper_target:1;
+    unsigned int lto_command:1;
   };
 
 
