@@ -1960,9 +1960,11 @@ main (int argc, char **argv, char **envp)
 
   read_files = read_all_makefiles (makefiles == 0 ? 0 : makefiles->list);
 
-  if (!mapper_setup (module_mapper))
-    ON (error, NILF,
-       _("warning: --module-mapper=%s support unavailable."), module_mapper);
+  if (module_mapper) {
+    if (!mapper_setup (module_mapper))
+      ON (error, NILF,
+         _("warning: --module-mapper=%s support unavailable."), module_mapper);
+  }
 
 #ifdef WINDOWS32
   /* look one last time after reading all Makefiles */
