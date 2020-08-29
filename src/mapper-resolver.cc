@@ -51,7 +51,7 @@ extern "C" {
 }
 /////////////////////////
 
-#define MODULE_SUFFIX "c++m"
+#define LTO_SUFFIX "ltotrans"
 
 module_resolver::module_resolver (bool def)
   : provide_default (def)
@@ -295,7 +295,7 @@ module_resolver::IncludeTranslateRequest (Cody::Server *s,
   return 0;
 }
 
-int module_resolver::LTOCompileRequest (Cody::Server *s, std::vector<std::string> &args) {
+int module_resolver::InvokeSubProcessRequest (Cody::Server *s, std::vector<std::string> &args) {
 
   //std::string temp_cmd = std::accumulate((args).begin()+1, (args).end(), std::string(" "));
   //std::cout << temp_cmd << std::endl;
@@ -316,20 +316,21 @@ int module_resolver::LTOCompileRequest (Cody::Server *s, std::vector<std::string
   //fork_execute (new_argv[0], new_argv, true);
   
   ///////////////////////////////////////////////////////////
-  /* look for a target called {modulename}.{MODULE_SUFFIX}  */
+  /* look for a target called {modulename}.{LTO_SUFFIX}  */
 
   std::string temp_op("john");
+  temp_op += rand();
   //char *operand = client_token (client);
   char *operand = (char *)temp_op.c_str();
 
   size_t len = strlen (operand);
-  char *target_name = (char *)xmalloc (len + 2 + strlen (MODULE_SUFFIX));
+  char *target_name = (char *)xmalloc (len + 2 + strlen (LTO_SUFFIX));
   struct file *f;
 
   // char *testing = variable_expand(
 
   memcpy (target_name, operand, len);
-  strcpy (target_name + len, "." MODULE_SUFFIX);
+  strcpy (target_name + len, "." LTO_SUFFIX);
 
   f = lookup_file (target_name);
 
@@ -372,7 +373,7 @@ int module_resolver::LTOCompileRequest (Cody::Server *s, std::vector<std::string
   }
 
   // TODO: send back a compile status response
-  s->LTOResponse("success");
+  s->InvokedResponse("success");
   return 0;
 }
 
