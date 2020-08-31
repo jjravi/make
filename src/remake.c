@@ -235,7 +235,7 @@ update_goal_chain (struct goaldep *goaldeps)
                      or not at all.  G->changed will have been set above if
                      any commands were actually started for this goal.  */
                   && file->update_status == us_success && !g->changed
-		  && !file->mapper_target
+		  && !file->mapper_target && !file->lto_command
                   /* Never give a message under -s or -q.  */
                   && !run_silent && !question_flag)
                 OS (message, 1, ((file->phony || file->cmds == 0)
@@ -909,6 +909,10 @@ notice_finished_file (struct file *file)
   if (file->mapper_target)
     mapper_file_finish (file);
 
+  if (file->lto_command) {
+    mapper_file_finish (file);
+  }
+
   if (touch_flag
       /* The update status will be:
            us_success   if 0 or more commands (+ or ${MAKE}) were run and won;
@@ -1018,6 +1022,9 @@ notice_finished_file (struct file *file)
 
 	if (d->file->mapper_target)
 	  mapper_file_finish (d->file);
+
+  if (file->lto_command)
+    mapper_file_finish (file);
 
         if (ran && !d->file->phony)
           /* Fetch the new modification time.

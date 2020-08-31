@@ -292,17 +292,19 @@ jobserver_acquire (int timeout)
   while (1)
     {
       fd_set readfds;
+      fd_set writefds;
       int r;
       char intake;
       int hwm = job_fds[0];
 
       FD_ZERO (&readfds);
+      FD_ZERO (&writefds);
       FD_SET (job_fds[0], &readfds);
 
       if (mapper)
-	hwm = mapper_pre_pselect (hwm, &readfds);
+        hwm = mapper_pre_pselect (hwm, &readfds, &writefds);
 
-      r = pselect (hwm+1, &readfds, NULL, NULL, specp, &empty);
+      r = pselect (hwm+1, &readfds, &writefds, NULL, specp, &empty);
       if (r < 0)
         switch (errno)
           {
@@ -323,7 +325,7 @@ jobserver_acquire (int timeout)
         /* Timeout.  */
         return 0;
 
-      if (mapper && mapper_post_pselect (r, &readfds))
+      if (mapper && mapper_post_pselect (r, &readfds, &writefds))
 	spec.tv_sec = 0;
 
       if (r && FD_ISSET (job_fds[0], &readfds))

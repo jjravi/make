@@ -24,6 +24,52 @@ along with GCC; see the file COPYING3.  If not see
 #include <string>
 #include <map>
 
+#define MAPPER_VERSION 1
+
+#define HEADER_VAR "CXX_MODULE_HEADER"
+#define MAPPER_VAR "CXX_MODULE_MAPPER"
+#define PREFIX_VAR "CXX_MODULE_PREFIX"
+#define MODULE_SUFFIX "c++m"
+#define BMI_SUFFIX "gcm"
+
+enum response_codes
+{
+  CC_HANDSHAKE,
+  CC_IMPORT,
+  CC_INCLUDE,
+  CC_EXPORT,
+  CC_LTOCOMPILE,
+  CC_DONE,
+  CC_ERROR,
+  CC_TRANSLATE,
+  CC_IMPORTING,
+};
+
+struct client_request
+{
+  enum response_codes code : 8;
+  union 
+  {
+    const char *resp;
+    struct file *file;
+  } u;
+};
+
+
+class client_state : public Cody::Server {
+
+public: 
+  unsigned cix;
+  unsigned num_awaiting;
+
+  client_state(Cody::Resolver *rr, int fd, int ix) : Cody::Server(rr, fd)
+  {
+    cix=ix;
+    num_awaiting=0;
+  }
+
+};
+
 typedef unsigned location_t;
 
 // This is a GCC class, so GCC coding conventions on new bits.  

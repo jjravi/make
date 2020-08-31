@@ -41,7 +41,6 @@ extern "C" {
 #endif
 
 #define MAPPER_FOR_GCC 1
-#include "mapper.h"
 #include "cxx-mapper.hh"
 
 #include <stdarg.h>
@@ -67,78 +66,6 @@ extern "C" {
 #endif
 
 #include <sys/select.h>
-
-#define MAPPER_VERSION 1
-
-#define HEADER_VAR "CXX_MODULE_HEADER"
-#define MAPPER_VAR "CXX_MODULE_MAPPER"
-#define PREFIX_VAR "CXX_MODULE_PREFIX"
-#define MODULE_SUFFIX "c++m"
-#define BMI_SUFFIX "gcm"
-
-enum response_codes
-{
-  CC_HANDSHAKE,
-  CC_IMPORT,
-  CC_INCLUDE,
-  CC_EXPORT,
-  CC_LTOCOMPILE,
-  CC_DONE,
-  CC_ERROR,
-  CC_TRANSLATE,
-  CC_IMPORTING,
-};
-
-struct client_request
-{
-  enum response_codes code : 8;
-  union 
-  {
-    const char *resp;
-    struct file *file;
-  } u;
-};
-
-class client_state : public Cody::Server {
-
-public: 
-  unsigned cix;
-
-  client_state(Cody::Resolver *rr, int fd, int ix) : Cody::Server(rr, fd)
-  {
-    cix=ix;
-  }
-
-};
-
-//struct client_state 
-//{
-//  struct child *job;  /* The job this is for.  */
-//
-//  char *buf;
-//  size_t buf_size;
-//  size_t buf_pos;
-//
-//  unsigned cix;
-//  int fd;
-//
-//  int reading : 1;  /* Filling read buffer.  */
-//  int bol : 1;
-//  int last : 1;
-//  int corking : 16;  /* number of lines, if corked.  */
-//
-//  struct client_request *requests;
-//  unsigned num_requests;
-//  unsigned num_awaiting;
-//};
-
-static int sock_fd = -1;
-static char *sock_name = NULL;
-static struct client_state **clients = NULL;
-static unsigned num_clients = 0;
-static unsigned alloc_clients = 0;
-static unsigned waiting_clients = 0;
-static module_resolver rr;
 
 static void
 delete_client (struct client_state *client, unsigned slot)
@@ -189,21 +116,6 @@ new_client (void)
 
   client = new client_state(&rr, client_fd, ++factory);
 
-//  client = (client_state *)xmalloc (sizeof (*client));
-//  memset (client, 0, sizeof (*client));
-//  client->cix = ++factory;
-//  client->job = NULL;  /* Discovered during handshake.  */
-//  client->fd = client_fd;
-//  client->reading = 1;
-//  client->buf_size = 10; /* Exercise expansion.  */
-//  client->buf = (char *)xmalloc (client->buf_size);
-//
-//  client->buf_pos = 0;
-//  client->bol = 1;
-//  client->last = client->corking = 0;
-//  client->num_requests = client->num_awaiting = 0;
-//  client->requests = NULL;
-
   if (num_clients == alloc_clients)
     {
       alloc_clients = (alloc_clients ? alloc_clients : 10) * 2;
@@ -216,15 +128,53 @@ new_client (void)
 }
 
 void
+track_lto_command (void)
+{
+  clients[0]->num_awaiting++;
+}
+
+void
 mapper_file_finish (struct file *file)
 {
 //  do_mapper_file_finish (file, "Make terminated");
+
+  clients[0]->num_awaiting--;
+  // DB (DB_JOBS, ("mapper:%u unpausing job %s\n", client->cix,
+  // client->job->file->name));
+  // if(jobs_paused > 0) {
+    // jobs_paused--;
+  // }
+  if (job_slots)
+    job_slots--;
+  waiting_clients--;
+
+
+  if (!clients[0]->num_awaiting)
+  {
+    // client_write (client, slot);
+  
+    // TODO: support more than one
+    if(clients && clients[0]) {
+      if(clients[0]->GetDirection() == Cody::Server::STALLED) {
+        if(file->update_status == us_success) {
+          clients[0]->InvokedResponse("success");
+        }
+        else {
+          clients[0]->InvokedResponse("failed");
+        }
+        clients[0]->PrepareToWrite();
+      }
+    }
+
+  
+  }
+
 }
 
 /* Set bits in READERS for clients we're listening to.  */
 
 int
-mapper_pre_pselect (int hwm, fd_set *readers)
+mapper_pre_pselect (int hwm, fd_set *readers, fd_set *writers)
 {
   unsigned ix;
 
@@ -233,9 +183,10 @@ mapper_pre_pselect (int hwm, fd_set *readers)
     if (hwm < sock_fd)
       hwm = sock_fd;
     FD_SET (sock_fd, readers);
+    FD_SET (sock_fd, writers);
   }
 
-  for (ix = num_clients; ix--;)
+  for (ix = num_clients; ix--;) {
     if (clients[ix]->GetDirection() == Cody::Server::READING)
     {
       int fd = clients[ix]->GetFDRead();
@@ -244,6 +195,15 @@ mapper_pre_pselect (int hwm, fd_set *readers)
         hwm = fd;
       FD_SET (fd, readers);
     }
+    else if (clients[ix]->GetDirection() == Cody::Server::WRITING)
+    {
+      int fd = clients[ix]->GetFDWrite();
+
+      if (hwm < fd)
+        hwm = fd;
+      FD_SET (fd, writers);
+    }
+  }
 
   return hwm;
 }
@@ -258,20 +218,23 @@ client_read (struct client_state *client, unsigned slot)
   {
   case Cody::Server::READING:
     if (int err = client->Read ()) {
-      fprintf(stderr, "client->Read() err: %d\n", err);
-      sleep(1);
+      // fprintf(stderr, "client->Read() err: %d\n", err);
       return !(err == EINTR || err == EAGAIN);
     }
 
     client->ProcessRequests ();
-    client->PrepareToWrite ();
-    // break;
+    if(client->GetDirection() != Cody::Server::STALLED) {
+      client->PrepareToWrite ();
+    }
+    break;
   
   case Cody::Server::WRITING:
-    while (int err = client->Write ())
+    while (int err = client->Write ()) {
+    // fprintf(stderr, "client->Write() err: %d\n", err);
       if (!(err == EINTR || err == EAGAIN)){
         return true;
       }
+    }
     client->PrepareToRead ();
     break;
   
@@ -288,12 +251,12 @@ client_read (struct client_state *client, unsigned slot)
 /* Process bits in READERS for clients that have something for us.  */
 
 int
-mapper_post_pselect (int r, fd_set *readers)
+mapper_post_pselect (int r, fd_set *readers, fd_set *writers)
 {
   int blocked = 0;
   unsigned ix;
 
-  if (sock_fd >= 0 && FD_ISSET (sock_fd, readers))
+  if (sock_fd >= 0 && (FD_ISSET (sock_fd, readers) || FD_ISSET (sock_fd, writers)))
     {
       r--;
       new_client ();
@@ -303,8 +266,7 @@ mapper_post_pselect (int r, fd_set *readers)
   if (r)
     /* Do backwards because reading can cause client deletion.  */
     for (ix = num_clients; ix--;)
-      if ((clients[ix]->GetDirection() == Cody::Server::READING) && 
-        FD_ISSET(clients[ix]->GetFDRead(), readers))
+      if (((clients[ix]->GetDirection() == Cody::Server::READING) && FD_ISSET(clients[ix]->GetFDRead(), readers)) || ((clients[ix]->GetDirection() == Cody::Server::WRITING) && FD_ISSET(clients[ix]->GetFDWrite(), writers)) )
       {
 
         int cblocked = client_read (clients[ix], ix);
@@ -333,6 +295,7 @@ mapper_wait (int *status)
   for (;;)
   {
     fd_set readfds;
+    fd_set writefds;
     int hwm = 0;
     
     if (!specp && waiting_clients == num_clients
@@ -342,8 +305,11 @@ mapper_wait (int *status)
     }
     
     FD_ZERO (&readfds);
-    hwm = mapper_pre_pselect (0, &readfds);
-    r = pselect (hwm + 1, &readfds, NULL, NULL, specp, &empty);
+    FD_ZERO (&writefds);
+    hwm = mapper_pre_pselect (0, &readfds, &writefds);
+    // jobs_paused++;
+    r = pselect (hwm + 1, &readfds, &writefds, NULL, specp, &empty);
+    // jobs_paused--;
     if (r < 0)
       switch (errno)
       {
@@ -365,7 +331,7 @@ mapper_wait (int *status)
       }
     else if (!r)
       return 0; /* Timed out, but have new suspended job.  */
-    else if (mapper_post_pselect (r, &readfds))
+    else if (mapper_post_pselect (r, &readfds, &writefds))
       specp = &spec;
   }
 }

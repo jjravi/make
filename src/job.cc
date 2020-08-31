@@ -1094,10 +1094,7 @@ reap_children (int block, int err)
       else
         lastc->next = c->next;
 
-      // TODO: LTO fix lto memory leak
-      if(!c->file->lto_command) {
-        free_child (c);
-      }
+      free_child (c);
 
       unblock_sigs ();
 
@@ -1147,13 +1144,22 @@ free_child (struct child *child)
   if (handling_fatal_signal) /* Don't bother free'ing if about to die.  */
     return;
 
-  if (child->command_lines != 0)
+
+  // TODO: LTO fix lto memory leak
+  if(!child->file->lto_command) {
+
+    if (child->command_lines != 0)
     {
       unsigned int i;
       for (i = 0; i < child->file->cmds->ncommand_lines; ++i)
-        free (child->command_lines[i]);
-      free (child->command_lines);
+        if(child->command_lines[i])
+          free (child->command_lines[i]);
+
+      if(child->command_lines) {
+        free (child->command_lines);
+      }
     }
+  }
 
   if (child->environment != 0)
     {
@@ -1837,13 +1843,21 @@ new_job (struct file *file)
     job_next_command (c);
   }
   else {
-    // TODO: LTO more than one command
+    // TODO: LTO more than one command at once?
     c->command_ptr = file->cmds->commands;
     c->command_lines = &c->command_ptr;
     c->command_line = 1;
 
-    // TODO: LTO need to used jobs borrowed for this
-    job_slots_used--;
+    // TODO: LTO needs to borrow job from primary command gcc
+    // DB (DB_JOBS, ("mapper:%u pausing job %s\n", client->cix,
+        // client->job->file->name));
+
+    // if(job_slots == 1 && (job_slots == job_slots_used)) {
+    //   // jobs_paused++;
+    //   job_slots++;
+    // }
+
+    track_lto_command();
   }
 
   /* Wait for a job slot to be freed up.  If we allow an infinite number

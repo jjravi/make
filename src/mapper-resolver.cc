@@ -51,8 +51,6 @@ extern "C" {
 }
 /////////////////////////
 
-#define LTO_SUFFIX "ltotrans"
-
 module_resolver::module_resolver (bool def)
   : provide_default (def)
 {
@@ -295,7 +293,16 @@ module_resolver::IncludeTranslateRequest (Cody::Server *s,
   return 0;
 }
 
+std::string getfilename(std::string path)
+{
+  path = path.substr(path.find_last_of("/\\") + 1);
+  size_t dot_i = path.find_last_of('.');
+  return path.substr(0, dot_i);
+}
+
 int module_resolver::InvokeSubProcessRequest (Cody::Server *s, std::vector<std::string> &args) {
+
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////
 
   //std::string temp_cmd = std::accumulate((args).begin()+1, (args).end(), std::string(" "));
   //std::cout << temp_cmd << std::endl;
@@ -306,31 +313,17 @@ int module_resolver::InvokeSubProcessRequest (Cody::Server *s, std::vector<std::
 
   std::string temp_cmd = result_stream.str();
 
-  fprintf(stderr, "\tJR: resolve lto\n");
-  printf("command: \n");
-  printf("\t%s\n", temp_cmd.c_str());
+  // fprintf(stderr, "\tJR: resolve lto\n");
+  // printf("command: \n");
+  // printf("\t%s\n", temp_cmd.c_str());
 
   char *new_argv = (char *)temp_cmd.c_str();
-  // printf("\t%s\n", temp_cmd.c_str());
-  //fprintf(stderr, "\tcalling fork_execute\n");
-  //fork_execute (new_argv[0], new_argv, true);
-  
   ///////////////////////////////////////////////////////////
-  /* look for a target called {modulename}.{LTO_SUFFIX}  */
+  std::string lto_file_name = getfilename(args.back());
 
-  std::string temp_op("john");
-  temp_op += rand();
-  //char *operand = client_token (client);
-  char *operand = (char *)temp_op.c_str();
-
-  size_t len = strlen (operand);
-  char *target_name = (char *)xmalloc (len + 2 + strlen (LTO_SUFFIX));
+  char *target_name = (char *)xmalloc (lto_file_name.size());
   struct file *f;
-
-  // char *testing = variable_expand(
-
-  memcpy (target_name, operand, len);
-  strcpy (target_name + len, "." LTO_SUFFIX);
+  strcpy (target_name, lto_file_name.c_str());
 
   f = lookup_file (target_name);
 
@@ -349,7 +342,8 @@ int module_resolver::InvokeSubProcessRequest (Cody::Server *s, std::vector<std::
     f->cmds->fileinfo.offset = 0;
 
     f->cmds->commands = (char *)xmalloc (temp_cmd.length()*sizeof(char));
-    strncpy(f->cmds->commands, new_argv, temp_cmd.length());
+    strcpy(f->cmds->commands, new_argv);
+    // strncpy(f->cmds->commands, new_argv, temp_cmd.length());
     // strncpy(f->cmds->commands, *new_argv, temp_cmd.length());
 
     // f->cmds->commands = xrealloc (commands, commands_len);
@@ -367,13 +361,18 @@ int module_resolver::InvokeSubProcessRequest (Cody::Server *s, std::vector<std::
   // client->num_awaiting++;
   ///////////////////////////////////////////////////////////
   // TODO: wait here till the lto finishes
-  // sleep(1);
-  while (f->command_state == cs_running) {
-    reap_children (1, 0);
-  }
+
+//  while (f->command_state == cs_running) {
+//    reap_children (1, 0);
+//  }
+
+  // s->lto_state = LTO_RUNNING;
+
+//  printf("lto command done %s:%d\n", __FILE__, __LINE__);
+  s->SetDirection(Cody::Server::STALLED);
 
   // TODO: send back a compile status response
-  s->InvokedResponse("success");
+//  s->InvokedResponse("success");
   return 0;
 }
 
