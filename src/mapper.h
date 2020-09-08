@@ -61,15 +61,12 @@ class client_state : public Cody::Server {
 public: 
   unsigned cix;
   unsigned num_awaiting;
-  bool is_lto_command = false;
 
   client_state(Cody::Resolver *rr, int fd, int ix) : Cody::Server(rr, fd)
   {
     cix=ix;
     num_awaiting=0;
   }
-
-  void ProcessRequests (void);
 
 };
 
@@ -116,15 +113,15 @@ public:
   }
 
 public:
-  virtual void WaitUntilReady (client_state *s) ;
-  virtual void ErrorResponse (client_state *s, std::string &&msg);
+  virtual void WaitUntilReady (Cody::Server *s) override;
+  virtual void ErrorResponse (Cody::Server *s, std::string &&msg) override;
 
 public:
   // Virtual overriders, names are controlle by Cody::Resolver
-  virtual module_resolver *ConnectRequest (client_state *, unsigned version,
+  virtual module_resolver *ConnectRequest (Cody::Server *, unsigned version,
 					   std::string &agent,
 					   std::string &ident)
-    ;
+    override;
 
   virtual int ModuleRepoRequest (Cody::Server *) override;
 
@@ -140,11 +137,11 @@ public:
   virtual int IncludeTranslateRequest (Cody::Server *s, std::string &include)
     override;
 
-  virtual int InvokeSubProcessRequest (client_state *s, std::vector<std::string> &args)
-    ;
+  virtual int InvokeSubProcessRequest (Cody::Server *s, std::vector<std::string> &args)
+    override;
 
 private:
-  virtual std::string GetCMIName (std::string const &module) ;
+  virtual std::string GetCMIName (std::string const &module) override;
 
   virtual char const *GetCMISuffix () override;
 
@@ -163,7 +160,7 @@ class module_client : public Cody::Client
   sighandler_t sigpipe = SIG_IGN;
 
 public:
-  module_client (client_state *s)
+  module_client (Cody::Server *s)
     : Client (s)
   {
   }

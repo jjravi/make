@@ -175,22 +175,22 @@ module_resolver::GetCMISuffix ()
 }
 
 void 
-module_resolver::WaitUntilReady (client_state *s)
+module_resolver::WaitUntilReady (Cody::Server *s)
 {
 
 }
 
 void
-module_resolver::ErrorResponse (client_state *server, std::string &&msg)
+module_resolver::ErrorResponse (Cody::Server *server, std::string &&msg)
 {
   server->ErrorResponse (msg);
 }
 
 module_resolver *
-module_resolver::ConnectRequest (client_state *s, unsigned version,
+module_resolver::ConnectRequest (Cody::Server *s, unsigned version,
 				 std::string &a, std::string &i)
 {
-  // fprintf(stderr, "\tJR: resolve connectrequest\n");
+  fprintf(stderr, "\tJR: resolve connectrequest\n");
 
   if (!version || version > Cody::Version)
     s->ErrorResponse ("version mismatch");
@@ -300,7 +300,7 @@ std::string getfilename(std::string path)
   return path.substr(0, dot_i);
 }
 
-int module_resolver::InvokeSubProcessRequest (client_state *s, std::vector<std::string> &args) {
+int module_resolver::InvokeSubProcessRequest (Cody::Server *s, std::vector<std::string> &args) {
 
   ////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -369,7 +369,7 @@ int module_resolver::InvokeSubProcessRequest (client_state *s, std::vector<std::
   // s->lto_state = LTO_RUNNING;
 
 //  printf("lto command done %s:%d\n", __FILE__, __LINE__);
-  s->is_lto_command = true;
+  s->SetDirection(Cody::Server::STALLED);
 
   // TODO: send back a compile status response
 //  s->InvokedResponse("success");
