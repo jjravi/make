@@ -149,24 +149,24 @@ mapper_file_finish (struct file *file)
   waiting_clients--;
 
 
-  if (!clients[0]->num_awaiting)
-  {
-    // client_write (client, slot);
-  
-    // TODO: support more than one
-    if(clients && clients[0]) {
-      if(clients[0]->GetDirection() == Cody::Server::STALLED) {
-        if(file->update_status == us_success) {
-          clients[0]->InvokedResponse("success");
+  if (file->lto_command) {
+    if (!clients[0]->num_awaiting)
+    {
+      // client_write (client, slot);
+    
+      // TODO: support more than one
+      if(clients && clients[0]) {
+        if(clients[0]->is_lto_command) {
+          if(file->update_status == us_success) {
+            clients[0]->InvokedResponse("success");
+          }
+          else {
+            clients[0]->InvokedResponse("failed");
+          }
+          clients[0]->PrepareToWrite();
         }
-        else {
-          clients[0]->InvokedResponse("failed");
-        }
-        clients[0]->PrepareToWrite();
       }
     }
-
-  
   }
 
 }
@@ -223,7 +223,7 @@ client_read (struct client_state *client, unsigned slot)
     }
 
     client->ProcessRequests ();
-    if(client->GetDirection() != Cody::Server::STALLED) {
+    if(!client->is_lto_command) {
       client->PrepareToWrite ();
     }
     break;
@@ -260,7 +260,7 @@ mapper_post_pselect (int r, fd_set *readers, fd_set *writers)
     {
       r--;
       new_client ();
-      fprintf(stderr, "new_client here\n");
+      // fprintf(stderr, "new_client here\n");
     }
 
   if (r)
@@ -315,7 +315,7 @@ mapper_wait (int *status)
       {
       case EINTR:
         {
-          fprintf(stderr, "pselect r: %d\n", errno);
+          // fprintf(stderr, "pselect r: %d\n", errno);
           
           // TODO: stop when child process dies?
           /* SIGCHLD will show up as an EINTR.  We're in a loop,
@@ -438,5 +438,136 @@ mapper_ident (void *cookie)
   sprintf (assn, MAPPER_VAR "=%s?%#lx", sock_name, (unsigned long)cookie);
   return assn;
 }
+
+//// namespace MakeJR {
+
+// These do not need to be members
+static module_resolver *ConnectRequest (client_state *, module_resolver *,
+         std::vector<std::string> &words);
+//static int ModuleRepoRequest (Server *, Resolver *,
+//			      std::vector<std::string> &words);
+//static int ModuleExportRequest (Server *, Resolver *,
+//				std::vector<std::string> &words);
+//static int ModuleImportRequest (Server *, Resolver *,
+//				std::vector<std::string> &words);
+//static int ModuleCompiledRequest (Server *, Resolver *,
+//				  std::vector<std::string> &words);
+//static int IncludeTranslateRequest (Server *, Resolver *,
+//				     std::vector<std::string> &words);
+static int InvokeSubProcessRequest (client_state *, module_resolver *,
+             std::vector<std::string> &words);
+//
+//namespace {
+using RequestFn = int (client_state *, module_resolver *, std::vector<std::string> &);
+using RequestPair = std::tuple<char const *, RequestFn *>;
+static RequestPair
+  const requestTable[Cody::Detail::RC_HWM] =
+  {
+   // Same order as enum RequestCode
+   RequestPair {u8"HELLO", nullptr},
+   RequestPair {u8"MODULE-REPO", nullptr},
+    RequestPair {u8"MODULE-EXPORT", nullptr},
+    RequestPair {u8"MODULE-IMPORT", nullptr},
+    RequestPair {u8"MODULE-COMPILED", nullptr},
+    RequestPair {u8"INCLUDE-TRANSLATE", nullptr},
+   RequestPair {u8"INVOKE", InvokeSubProcessRequest},
+  };
+//}
+
+module_resolver *ConnectRequest (client_state *s, module_resolver *r,
+			  std::vector<std::string> &words)
+{
+  if (words.size () < 3 || words.size () > 4)
+    return nullptr;
+
+  if (words.size () == 3)
+    words.emplace_back (u8"");
+  char *eptr;
+  unsigned long version = strtoul (words[1].c_str (), &eptr, 10);
+  if (*eptr)
+    return nullptr;
+
+  return r->ConnectRequest (s, unsigned (version), words[2], words[3]);
+}
+
+int InvokeSubProcessRequest (client_state *s, module_resolver *r,
+			     std::vector<std::string> &args)
+{
+  if (args.size () < 2 || args[1].empty ())
+    return -1;
+
+  return r->InvokeSubProcessRequest (s, args);
+}
+
+void client_state::ProcessRequests (void)
+  {
+    // fprintf(stderr, "client_state ProcessRequests()\n");
+    std::vector<std::string> words;
+
+    this->SetDirection(Cody::Server::PROCESSING);
+
+    while (!read.IsAtEnd ())
+     {
+      int err = 0;
+      unsigned ix = Cody::Detail::RC_HWM;
+      if (!read.Lex (words))
+      {
+        assert (!words.empty ());
+        while (ix--)
+        {
+         if (words[0] != std::get<0> (requestTable[ix]))
+           continue; // not this one
+
+         if (ix == Cody::Detail::RC_CONNECT)
+         {
+           // CONNECT
+           if (IsConnected ())
+             err = -1;
+           else if (auto *r = ConnectRequest (this, &rr, words))
+             rr = r;
+           else
+             err = -1;
+         }
+         else
+         {
+           if (!IsConnected ())
+             err = -1;
+           else if (int res = (std::get<1> (requestTable[ix])
+               (this, &rr, words)))
+             err = res;
+         }
+         break;
+        }
+      }
+
+      if (err || ix >= Cody::Detail::RC_HWM)
+      {
+        // Some kind of error
+        std::string msg;
+
+        if (err > 0)
+          msg = u8"error processing '";
+        else if (ix >= Cody::Detail::RC_HWM)
+          msg = u8"unrecognized '";
+        else if (IsConnected () && ix == Cody::Detail::RC_CONNECT)
+          msg = u8"already connected '";
+        else if (!IsConnected () && ix != Cody::Detail::RC_CONNECT)
+          msg = u8"not connected '";
+        else
+          msg = u8"malformed '";
+
+        read.LexedLine (msg);
+        msg.append (u8"'");
+        if (err > 0)
+        {
+          msg.append (u8" ");
+          msg.append (strerror (err));
+        }
+        rr.ErrorResponse (this, std::move (msg));
+      }
+    }
+  }
+
+
 
 #endif /* MAKE_CXX_MAPPER */
