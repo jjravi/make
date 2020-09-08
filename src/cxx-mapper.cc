@@ -155,7 +155,7 @@ mapper_file_finish (struct file *file)
   
     // TODO: support more than one
     if(clients && clients[0]) {
-      if(clients[0]->GetDirection() == Cody::Server::STALLED) {
+      if(clients[0]->is_lto_command) {
         if(file->update_status == us_success) {
           clients[0]->InvokedResponse("success");
         }
@@ -223,7 +223,7 @@ client_read (struct client_state *client, unsigned slot)
     }
 
     client->ProcessRequests ();
-    if(client->GetDirection() != Cody::Server::STALLED) {
+    if(!client->is_lto_command) {
       client->PrepareToWrite ();
     }
     break;

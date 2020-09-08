@@ -304,6 +304,8 @@ int module_resolver::InvokeSubProcessRequest (Cody::Server *s, std::vector<std::
 
   ////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+  client_state *cs = static_cast<client_state *>(s);
+
   //std::string temp_cmd = std::accumulate((args).begin()+1, (args).end(), std::string(" "));
   //std::cout << temp_cmd << std::endl;
 
@@ -369,7 +371,7 @@ int module_resolver::InvokeSubProcessRequest (Cody::Server *s, std::vector<std::
   // s->lto_state = LTO_RUNNING;
 
 //  printf("lto command done %s:%d\n", __FILE__, __LINE__);
-  s->SetDirection(Cody::Server::STALLED);
+  cs->is_lto_command = true;
 
   // TODO: send back a compile status response
 //  s->InvokedResponse("success");

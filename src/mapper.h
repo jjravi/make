@@ -61,6 +61,7 @@ class client_state : public Cody::Server {
 public: 
   unsigned cix;
   unsigned num_awaiting;
+  bool is_lto_command = false;
 
   client_state(Cody::Resolver *rr, int fd, int ix) : Cody::Server(rr, fd)
   {
