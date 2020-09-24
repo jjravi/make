@@ -157,10 +157,10 @@ mapper_file_finish (struct file *file)
     if(clients && clients[0]) {
       if(clients[0]->is_lto_command) {
         if(file->update_status == us_success) {
-          clients[0]->InvokedResponse("success");
+          clients[0]->OKResponse();
         }
         else {
-          clients[0]->InvokedResponse("failed");
+          clients[0]->ErrorResponse("failed");
         }
         clients[0]->PrepareToWrite();
       }
